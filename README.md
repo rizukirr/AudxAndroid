@@ -77,7 +77,7 @@ Add the dependency in your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:AudxAndroid:1.0.0")
+    implementation("com.github.rizukirr:AudxAndroid:1.0.0-dev01")
 }
 ```
 
