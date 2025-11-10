@@ -1,13 +1,13 @@
 # Audio Denoiser - Quick Start Guide
 
-## 📋 Requirements Checklist
+## Requirements Checklist
 
-✅ **Sample Rate**: 48kHz (48000 Hz)
-✅ **Audio Format**: 16-bit signed PCM
-✅ **Frame Size**: 480 samples/channel (10ms)
-✅ **Channels**: 1 (mono) or 2 (stereo, interleaved)
+- **Sample Rate**: 48kHz (48000 Hz)
+- **Audio Format**: 16-bit signed PCM
+- **Frame Size**: 480 samples/channel (10ms)
+- **Channels**: 1 (mono) or 2 (stereo, interleaved)
 
-## 🚀 Basic Usage (3 Steps)
+## Basic Usage (3 Steps)
 
 ### Step 1: Create Denoiser
 
@@ -41,7 +41,7 @@ denoiser.flush()    // Process remaining buffered audio
 denoiser.destroy()  // Release resources
 ```
 
-## 📱 Complete Android Example
+## Complete Android Example
 
 ```kotlin
 class MyActivity : AppCompatActivity() {
@@ -110,7 +110,7 @@ class MyActivity : AppCompatActivity() {
 }
 ```
 
-## 🎯 Key Constants
+## Key Constants
 
 ```kotlin
 Denoiser.SAMPLE_RATE          // 48000
@@ -121,7 +121,7 @@ Denoiser.getFrameSizeInSamples(2)  // 960 (stereo)
 Denoiser.getRecommendedBufferSize(1, 10)  // Buffer for 10ms mono
 ```
 
-## ⚙️ Configuration Options
+## Configuration Options
 
 ### VAD Threshold
 
@@ -145,7 +145,7 @@ Denoiser.getRecommendedBufferSize(1, 10)  // Buffer for 10ms mono
 .enableVadOutput(false)  // Skips VAD calculation
 ```
 
-## 🔧 AudioRecord Setup for 48kHz
+## AudioRecord Setup for 48kHz
 
 ```kotlin
 val audioRecord = AudioRecord(
@@ -157,7 +157,7 @@ val audioRecord = AudioRecord(
 )
 ```
 
-## 📊 Processing Flow
+## Processing Flow
 
 ```
 AudioRecord (48kHz PCM)
@@ -173,12 +173,12 @@ onProcessedAudio callback
 Denoised audio + VAD result
 ```
 
-## 🎬 Example Files
+## Example Files
 
 - [Simple Example](https://github.com/rizukirr/audx-android/blob/main/examples/SimpleDenoiserExample.kt)
 - [AudioRecord Integration Example](https://github.com/rizukirr/audx-android/blob/main/examples/DenoiserAudioRecordingExample.kt)
 
-## ⚠️ Common Mistakes
+## Common Mistakes
 
 ### ❌ Wrong sample rate
 
@@ -226,7 +226,7 @@ val buffer = ByteArray(1024)  // WRONG! Denoiser needs ShortArray
 val buffer = ShortArray(480)  // ShortArray for 16-bit PCM
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Check if 48kHz is supported
 
@@ -264,12 +264,12 @@ denoiser.onProcessedAudio { audio, _ ->
 // Convert to WAV: ffmpeg -f s16le -ar 48000 -ac 1 -i denoised.pcm denoised.wav
 ```
 
-## 📚 Additional Resources
+## Additional Resources
 
 - **Frame size explanation**: 480 samples = 10ms at 48kHz
 - **VAD**: Voice Activity Detection (0.0 = silence, 1.0 = speech)
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
 | Issue                | Solution                                                        |
 | -------------------- | --------------------------------------------------------------- |
