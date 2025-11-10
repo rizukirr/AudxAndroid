@@ -2,10 +2,10 @@
 
 ## Requirements Checklist
 
-✅ **Sample Rate**: 48kHz (48000 Hz)
-✅ **Audio Format**: 16-bit signed PCM
-✅ **Frame Size**: 480 samples/channel (10ms)
-✅ **Channels**: 1 (mono) or 2 (stereo, interleaved)
+- **Sample Rate**: 48kHz (48000 Hz)
+- **Audio Format**: 16-bit signed PCM
+- **Frame Size**: 480 samples/channel (10ms)
+- **Channels**: 1 (mono) or 2 (stereo, interleaved)
 
 ## Basic Usage (3 Steps)
 
