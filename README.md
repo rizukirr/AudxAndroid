@@ -5,7 +5,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![API](https://img.shields.io/badge/API-24%2B-brightgreen.svg)](https://android-arsenal.com/api?level=24)
 
-An Android library for real-time audio denoising with built-in Voice Activity Detection (VAD) base on Recurrent Neural Networks. The core of this project is written in C that you can found in this [link](https://github.com/rizukirr/audx-realtime)
+An Android library for real-time audio denoising with built-in Voice Activity Detection (VAD), based on Recurrent Neural Networks. The core of this project is written in C, which you can find at this [link](https://github.com/rizukirr/audx-realtime).
 
 ## Quick Start
 
