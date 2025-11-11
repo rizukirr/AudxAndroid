@@ -95,4 +95,4 @@ Built with [audx-realtime](https://github.com/rizukirr/audx-realtime) - Audio de
 If you find this project helpful, consider supporting its development:  
 ☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
 
-Made with ❤️ by [Your Name](https://github.com/rizukirr)
+Made with ❤️ by [rizukirr](https://github.com/rizukirr)
