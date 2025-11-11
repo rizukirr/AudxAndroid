@@ -16,9 +16,7 @@ import kotlin.concurrent.withLock
  * @property samplesProcessed Number of samples processed (should be 480 per channel)
  */
 data class DenoiserResult(
-    val vadProbability: Float,
-    val isSpeech: Boolean,
-    val samplesProcessed: Int
+    val vadProbability: Float, val isSpeech: Boolean, val samplesProcessed: Int
 )
 
 /**
@@ -45,16 +43,7 @@ data class DenoiserStats(
     val processingTimeTotal: Float,
     val processingTimeAvg: Float,
     val processingTimeLast: Float
-) {
-    override fun toString(): String {
-        return "DenoiserStats(frames=$frameProcessed, speech=${String.format("%.1f", speechDetectedPercent)}%, " +
-                "vad=[avg=${String.format("%.3f", vadScoreAvg)}, min=${String.format("%.3f", vadScoreMin)}, " +
-                "max=${String.format("%.3f", vadScoreMax)}], " +
-                "time=[total=${String.format("%.2f", processingTimeTotal)}ms, " +
-                "avg=${String.format("%.3f", processingTimeAvg)}ms, " +
-                "last=${String.format("%.3f", processingTimeLast)}ms])"
-    }
-}
+)
 
 /**
  * Callback for receiving processed audio chunks in streaming mode
@@ -100,6 +89,7 @@ class AudxDenoiser private constructor(
         @JvmStatic
         val SAMPLE_RATE: Int
             get() = getSampleRateNative()
+
         /**
          * Number of audio channels supported (from native: AUDX_CHANNELS_MONO)
          * Always 1 for mono audio
@@ -169,8 +159,7 @@ class AudxDenoiser private constructor(
     private val audioDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     enum class ModelPreset(val value: Int) {
-        EMBEDDED(0),
-        CUSTOM(1)
+        EMBEDDED(0), CUSTOM(1)
     }
 
     init {
@@ -187,10 +176,7 @@ class AudxDenoiser private constructor(
         }
 
         nativeHandle = createNative(
-            modelPreset.value,
-            modelPath,
-            vadThreshold,
-            enableVadOutput
+            modelPreset.value, modelPath, vadThreshold, enableVadOutput
         )
 
         if (nativeHandle == 0L) {
@@ -198,8 +184,7 @@ class AudxDenoiser private constructor(
         }
 
         Log.i(
-            TAG,
-            "Denoiser initialized (channels=1, preset=$modelPreset, vad=$vadThreshold)"
+            TAG, "Denoiser initialized (channels=1, preset=$modelPreset, vad=$vadThreshold)"
         )
     }
 
@@ -298,6 +283,7 @@ class AudxDenoiser private constructor(
             is ValidationResult.Success -> {
                 // Chunk is valid, proceed
             }
+
             is ValidationResult.Error -> {
                 throw IllegalArgumentException("Invalid audio chunk: ${result.message}")
             }
@@ -454,17 +440,12 @@ class AudxDenoiser private constructor(
 
     // Native bindings
     private external fun createNative(
-        modelPreset: Int,
-        modelPath: String?,
-        vadThreshold: Float,
-        enableVadOutput: Boolean
+        modelPreset: Int, modelPath: String?, vadThreshold: Float, enableVadOutput: Boolean
     ): Long
 
     private external fun destroyNative(handle: Long)
     private external fun processNative(
-        handle: Long,
-        input: ShortArray,
-        output: ShortArray
+        handle: Long, input: ShortArray, output: ShortArray
     ): DenoiserResult?
 
     private external fun getStatsNative(handle: Long): DenoiserStats?
