@@ -2,6 +2,7 @@ package com.android.audx
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.locks.ReentrantLock
@@ -39,6 +40,7 @@ typealias ProcessedAudioCallback = (denoisedAudio: ShortArray, result: DenoiserR
  * For mono: 480 samples per frame
  * For stereo: 960 samples per frame (480L + 480R interleaved)
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class Denoiser private constructor(
     modelPreset: ModelPreset,
     vadThreshold: Float,
@@ -111,6 +113,7 @@ class Denoiser private constructor(
     // Streaming mode: buffer for accumulating samples until we have a complete frame
     private val streamBuffer = mutableListOf<Short>()
     private val bufferLock = ReentrantLock()
+    private val audioDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     enum class ModelPreset(val value: Int) {
         EMBEDDED(0),
@@ -240,7 +243,7 @@ class Denoiser private constructor(
      * @param input Audio samples at 48kHz (any size, will be buffered internally)
      * @throws IllegalStateException if no callback was set in builder
      */
-    suspend fun processChunk(input: ShortArray) = withContext(Dispatchers.Default) {
+    suspend fun processChunk(input: ShortArray) = withContext(audioDispatcher) {
         check(nativeHandle != 0L) { "Denoiser has been destroyed" }
         requireNotNull(processedAudioCallback) {
             "processChunk requires a callback. Use Builder.onProcessedAudio() to set one."
@@ -277,7 +280,7 @@ class Denoiser private constructor(
      * Call this when stopping recording to ensure all audio is processed.
      * Only needed in streaming mode (when using processChunk).
      */
-    suspend fun flush() = withContext(Dispatchers.Default) {
+    suspend fun flush() = withContext(audioDispatcher) {
         check(nativeHandle != 0L) { "Denoiser has been destroyed" }
 
         if (processedAudioCallback == null) return@withContext

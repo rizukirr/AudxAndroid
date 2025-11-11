@@ -16,3 +16,4 @@ local.properties
 /.idea/
 /.kotlin/
 CLAUDE.md
+kls_database.db

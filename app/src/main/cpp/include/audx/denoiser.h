@@ -25,10 +25,10 @@ typedef struct RNNModel RNNModel;
 #define REALTIME_DENOISER_ERROR_FORMAT -4
 
 struct DenoiserConfig {
-  int num_channels;              // 1 = mono, 2 = stereo
+  int num_channels; // 1 = mono (stereo not supported in optimized version)
   enum ModelPreset model_preset; // Which model to use
   const char *model_path;        // Path to custom model, can be NULL
-  float vad_threshold;           // 0.0-0.1 default 0.5
+  float vad_threshold;           // 0.0-1.0 default 0.5
   bool enable_vad_output;        // Enable VAD in results
 };
 
@@ -38,23 +38,34 @@ struct DenoiserResult {
   int samples_processed; // should be 480
 };
 
+struct DenoiserStats {
+  int frame_processed;
+  float speech_detected;
+  float vscores_avg;
+  float vscores_min;
+  float vscores_max;
+  float ptime_total;
+  float ptime_avg;
+  float ptime_last;
+};
+
 /**
- * @brief Opaque denoiser context
+ * @brief Optimized mono denoiser context (no worker threads)
  */
 struct Denoiser {
   /* Configuration */
-  int num_channels;
+  int num_channels; // Always 1 in optimized version
   float vad_threshold;
   bool enable_vad_output;
 
-  /* RNNoise state (one per channel) */
-  DenoiseState **denoisers;
+  /* RNNoise state (single channel) */
+  DenoiseState *denoiser_state;
 
   /* Loaded model (NULL for embedded) */
   RNNModel *model;
 
-  /* Processing buffers (planar float) */
-  float **processing_buffers; // [num_channels][480]
+  /* Single processing buffer (frame-sized float array) */
+  float *processing_buffer; // [FRAME_SIZE]
 
   /* Statistics */
   uint64_t frames_processed;
@@ -63,18 +74,18 @@ struct Denoiser {
   float min_vad_score;
   float max_vad_score;
 
-  /* Timer */
-  struct timespec start_time;
-  struct timespec end_time;
+  /* Timing info */
   double total_processing_time;
   double last_frame_time;
 
-  /* Last error */
+  /* Error handling */
   char error_buffer[256];
 };
 
 /**
  * @brief Create denoiser instance
+ *
+ * NOTE: This optimized version only supports mono audio (num_channels=1)
  *
  * @param config    Configuration (must not be NULL)
  * @param denoiser  denoiser to identify
@@ -88,12 +99,18 @@ int denoiser_create(const struct DenoiserConfig *config,
  * @brief Process audio samples
  *
  * REQUIREMENTS:
- * - input_pcm must be exactly 480 * num_channels sample
+ * - input_pcm must be exactly 480 samples (mono only)
  * - Audio must be 48kHz, 16-bit signed PCM
- * - Stereo must be interleaved: [L, R, L, R, ...]
+ * - Optimized for real-time processing with minimal overhead
+ *
+ * THREAD SAFETY:
+ * - This function must be called from a single thread only
+ * - No internal worker threads (simplified for mono)
+ * - Statistics (frames_processed, etc.) are NOT thread-safe
+ * - Do NOT call this function concurrently from multiple threads
  *
  * @param denoiser      Denoiser context
- * @param input_pcm     Input samples
+ * @param input_pcm     Input samples (480 samples)
  * @param output_pcm    output samples (same size as input)
  * @param result        Result info (Optional, can be NULL)
  *
@@ -125,7 +142,7 @@ const char *get_denoiser_error(struct Denoiser *denoiser);
  *
  * @return Statistics string (do not free)
  */
-const char *get_denoiser_stats(struct Denoiser *denoiser);
+int get_denoiser_stats(struct Denoiser *denoiser, struct DenoiserStats *stats);
 
 /**
  * @brief Get RNNoiser version
