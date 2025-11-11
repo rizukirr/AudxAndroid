@@ -6,8 +6,10 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Base64
 import android.util.Log
+import com.android.audx.AudioFormatValidator
 import com.android.audx.Denoiser
 import com.android.audx.DenoiserResult
+import com.android.audx.ValidationResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,13 +35,10 @@ class DenoiserAudioRecordingExample {
 
     companion object {
         private const val TAG = "DenoiserAudioRecording"
-
-        // Denoiser requirements: 48kHz, 16-bit PCM, mono
-        private const val SAMPLE_RATE = 48000  // Must be 48kHz for audio denoising
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         private const val BUFFER_SIZE_FACTOR = 4
-        private const val CHUNK_DURATION_MS = 500L // Send chunks every 500ms
+        private const val CHUNK_DURATION_MS = 100L // Send chunks every 500ms
 
         // VAD threshold for speech detection
         private const val VAD_THRESHOLD = 0.5f
@@ -88,7 +87,6 @@ class DenoiserAudioRecordingExample {
      */
     private fun initializeDenoiser() {
         denoiser = Denoiser.Builder()
-            .numChannels(1)  // Mono audio
             .vadThreshold(VAD_THRESHOLD)
             .enableVadOutput(true)
             .modelPreset(Denoiser.ModelPreset.EMBEDDED)
@@ -99,7 +97,7 @@ class DenoiserAudioRecordingExample {
             .build()
 
         Log.i(TAG, "Denoiser initialized: " +
-            "Frame size = ${Denoiser.getFrameSizeInSamples(1)} samples, " +
+            "Frame size = ${Denoiser.FRAME_SIZE} samples, " +
             "Frame duration = ${Denoiser.getFrameDurationMs()}ms")
     }
 
@@ -109,7 +107,7 @@ class DenoiserAudioRecordingExample {
     @SuppressLint("MissingPermission")
     private fun initializeAudioRecord() {
         val minBufferSize = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE,
+            Denoiser.SAMPLE_RATE,  // Use constant from native library
             CHANNEL_CONFIG,
             AUDIO_FORMAT
         )
@@ -118,7 +116,7 @@ class DenoiserAudioRecordingExample {
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            SAMPLE_RATE,
+            Denoiser.SAMPLE_RATE,  // Use constant from native library
             CHANNEL_CONFIG,
             AUDIO_FORMAT,
             bufferSize
@@ -128,7 +126,7 @@ class DenoiserAudioRecordingExample {
             throw IllegalStateException("AudioRecord initialization failed")
         }
 
-        Log.i(TAG, "AudioRecord initialized: 48kHz, mono, 16-bit PCM, buffer=$bufferSize bytes")
+        Log.i(TAG, "AudioRecord initialized: ${Denoiser.SAMPLE_RATE}Hz, mono, 16-bit PCM, buffer=$bufferSize bytes")
     }
 
     /**

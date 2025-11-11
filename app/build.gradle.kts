@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -24,6 +26,11 @@ android {
         aarMetadata {
             minCompileSdk = 24
         }
+
+        // Only build for ABIs that have prebuilt libraries
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -41,8 +48,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = "11"
+    kotlin {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_11
+        }
     }
 
     externalNativeBuild {
@@ -73,8 +82,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
 
     // Kotlin Coroutines - required for suspend functions
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
 
     // Test dependencies
     testImplementation(libs.junit)

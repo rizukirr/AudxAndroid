@@ -1,10 +1,9 @@
-#ifndef AUDX_REALTIME_DENOISER_H
-#define AUDX_REALTIME_DENOISER_H
+#ifndef AUDX_AUDX_H
+#define AUDX_AUDX_H
 
 #include "model_loader.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <time.h>
 
 /* Forward declarations for rnnoise types */
 #ifdef __cplusplus
@@ -16,16 +15,20 @@ typedef struct RNNModel RNNModel;
 }
 #endif
 
-#define FRAME_SIZE 480
+/* Audio format constants */
+#define AUDX_SAMPLE_RATE_48KHZ 48000
+#define AUDX_CHANNELS_MONO 1
+#define AUDX_BIT_DEPTH_16 16
+#define AUDX_FRAME_SIZE 480
 
-#define REALTIME_DENOISER_SUCCESS 0
-#define REALTIME_DENOISER_ERROR_INVALID -1
-#define REALTIME_DENOISER_ERROR_MEMORY -2
-#define REALTIME_DENOISER_ERROR_MODEL -3
-#define REALTIME_DENOISER_ERROR_FORMAT -4
+/* Error codes */
+#define AUDX_SUCCESS 0
+#define AUDX_ERROR_INVALID -1
+#define AUDX_ERROR_MEMORY -2
+#define AUDX_ERROR_MODEL -3
+#define AUDX_ERROR_FORMAT -4
 
 struct DenoiserConfig {
-  int num_channels; // 1 = mono (stereo not supported in optimized version)
   enum ModelPreset model_preset; // Which model to use
   const char *model_path;        // Path to custom model, can be NULL
   float vad_threshold;           // 0.0-1.0 default 0.5
@@ -151,4 +154,4 @@ int get_denoiser_stats(struct Denoiser *denoiser, struct DenoiserStats *stats);
  */
 const char *denoiser_version(void);
 
-#endif // AUDX_REALTIME_DENOISER_H
+#endif // AUDX_AUDX_H

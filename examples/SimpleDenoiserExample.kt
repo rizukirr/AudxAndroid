@@ -6,7 +6,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import com.android.audx.AudioFormatValidator
 import com.android.audx.Denoiser
+import com.android.audx.ValidationResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,7 +53,6 @@ class SimpleDenoiserExample {
         try {
             // 1. Create denoiser
             denoiser = Denoiser.Builder()
-                .numChannels(1)
                 .vadThreshold(0.5f)
                 .onProcessedAudio { denoisedAudio, result ->
                     // This is called for each 10ms frame
@@ -105,7 +106,7 @@ class SimpleDenoiserExample {
     private fun startProcessing() {
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             // Buffer size: 2 frames (20ms) for smooth processing
-            val bufferSize = Denoiser.getFrameSizeInSamples(1) * 2
+            val bufferSize = Denoiser.FRAME_SIZE * 2
             val buffer = ShortArray(bufferSize)
 
             while (isRecording) {
@@ -114,11 +115,15 @@ class SimpleDenoiserExample {
                     val samplesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
 
                     if (samplesRead > 0) {
-                        // Feed to denoiser
+                        // Feed to denoiser (validation happens automatically inside processChunk)
                         val audioData = buffer.copyOf(samplesRead)
                         denoiser?.processChunk(audioData)
                     }
 
+                } catch (e: IllegalArgumentException) {
+                    // Validation error from denoiser
+                    Log.e(TAG, "Audio validation error: ${e.message}")
+                    break
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing audio: ${e.message}")
                     break

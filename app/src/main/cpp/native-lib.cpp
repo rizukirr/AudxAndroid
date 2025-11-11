@@ -11,17 +11,15 @@ extern "C" {
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_android_audx_Denoiser_createNative(
+Java_com_android_audx_AudxDenoiser_createNative(
         JNIEnv *env,
         jobject /* this */,
-        jint numChannels,
         jint modelPreset,
         jstring modelPath,
         jfloat vadThreshold,
         jboolean enableVadOutput) {
 
     struct DenoiserConfig config{};
-    config.num_channels = numChannels;
     config.model_preset = static_cast<ModelPreset>(modelPreset);
 
     const char *model_path_str = nullptr;
@@ -35,7 +33,7 @@ Java_com_android_audx_Denoiser_createNative(
     auto *denoiser = new Denoiser();
 
     int ret = denoiser_create(&config, denoiser);
-    if (ret != REALTIME_DENOISER_SUCCESS) {
+    if (ret != AUDX_SUCCESS) {
         delete denoiser;
         return 0;
     }
@@ -51,12 +49,12 @@ Java_com_android_audx_Denoiser_createNative(
     }
 
     LOGI("Denoiser created successfully (channels: %d, model_preset: %d, vad_threshold: %.2f, enable_vad: %d)",
-         numChannels, modelPreset, vadThreshold, enableVadOutput);
+         1, modelPreset, vadThreshold, enableVadOutput);
     return reinterpret_cast<jlong>(denoiser);
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_android_audx_Denoiser_destroyNative(
+Java_com_android_audx_AudxDenoiser_destroyNative(
         JNIEnv *env,
         jobject /* this */,
         jlong handle) {
@@ -70,7 +68,7 @@ Java_com_android_audx_Denoiser_destroyNative(
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_android_audx_Denoiser_processNative(
+Java_com_android_audx_AudxDenoiser_processNative(
         JNIEnv *env,
         jobject /* this */,
         jlong handle,
@@ -104,7 +102,7 @@ Java_com_android_audx_Denoiser_processNative(
     env->ReleaseShortArrayElements(inputArray, input, JNI_ABORT);
     env->ReleaseShortArrayElements(outputArray, output, 0);
 
-    if (ret != REALTIME_DENOISER_SUCCESS) {
+    if (ret != AUDX_SUCCESS) {
         LOGE("Denoiser processing failed: %d", ret);
         return nullptr;
     }
@@ -133,4 +131,33 @@ Java_com_android_audx_Denoiser_processNative(
     );
 
     return resultObj;
+}
+
+// Expose native audio format constants to Kotlin
+extern "C" JNIEXPORT jint JNICALL
+Java_com_android_audx_AudxDenoiser_getSampleRateNative(
+        JNIEnv *env,
+        jclass /* clazz */) {
+    return AUDX_SAMPLE_RATE_48KHZ;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_android_audx_AudxDenoiser_getChannelsNative(
+        JNIEnv *env,
+        jclass /* clazz */) {
+    return AUDX_CHANNELS_MONO;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_android_audx_AudxDenoiser_getBitDepthNative(
+        JNIEnv *env,
+        jclass /* clazz */) {
+    return AUDX_BIT_DEPTH_16;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_android_audx_AudxDenoiser_getFrameSizeNative(
+        JNIEnv *env,
+        jclass /* clazz */) {
+    return AUDX_FRAME_SIZE;
 }
