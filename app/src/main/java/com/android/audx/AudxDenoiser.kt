@@ -129,7 +129,8 @@ class AudxDenoiser private constructor(
     private var nativeHandle: Long = 0
 
     // Streaming mode: buffer for accumulating samples until we have a complete frame
-    private val streamBuffer = mutableListOf<Short>()
+    private var streamBuffer = ShortArray(FRAME_SIZE * 4)  // Initial capacity: 4 frames
+    private var bufferSize = 0  // Current number of samples in buffer
     private val bufferLock = ReentrantLock()
     private val audioDispatcher = Dispatchers.Default.limitedParallelism(1)
 
@@ -244,6 +245,10 @@ class AudxDenoiser private constructor(
      *
      * IMPORTANT: Input audio must be 48kHz, 16-bit PCM mono format.
      *
+     * Performance: Uses primitive array buffer to avoid boxing overhead and GC pressure
+     * during continuous real-time streaming. After initial warm-up, operates with
+     * zero allocations per chunk (except for frame output arrays).
+     *
      * @param input Audio samples at 48kHz mono (any size, will be buffered internally)
      * @throws IllegalStateException if no callback was set in builder
      * @throws IllegalArgumentException if audio chunk is invalid
@@ -265,14 +270,23 @@ class AudxDenoiser private constructor(
         }
 
         bufferLock.withLock {
-            // Add new samples to buffer
-            streamBuffer.addAll(input.toList())
+            // Ensure buffer has enough capacity
+            val requiredCapacity = bufferSize + input.size
+            if (requiredCapacity > streamBuffer.size) {
+                // Grow buffer (double size or fit required capacity, whichever is larger)
+                val newCapacity = maxOf(streamBuffer.size * 2, requiredCapacity)
+                streamBuffer = streamBuffer.copyOf(newCapacity)
+                Log.d(TAG, "Buffer resized to $newCapacity samples")
+            }
+
+            // Copy input samples to buffer using fast native memcpy
+            System.arraycopy(input, 0, streamBuffer, bufferSize, input.size)
+            bufferSize += input.size
 
             // Process all complete frames in the buffer
-            while (streamBuffer.size >= FRAME_SIZE) {
-                // Extract one frame
-                val frame = streamBuffer.take(FRAME_SIZE).toShortArray()
-                streamBuffer.subList(0, FRAME_SIZE).clear()
+            while (bufferSize >= FRAME_SIZE) {
+                // Extract frame directly from buffer (single allocation)
+                val frame = streamBuffer.copyOfRange(0, FRAME_SIZE)
 
                 // Process the frame
                 val output = ShortArray(FRAME_SIZE)
@@ -284,6 +298,13 @@ class AudxDenoiser private constructor(
                 } else {
                     Log.w(TAG, "Native processing returned null for chunk")
                 }
+
+                // Remove processed frame from buffer using fast native memcpy
+                val remainingSize = bufferSize - FRAME_SIZE
+                if (remainingSize > 0) {
+                    System.arraycopy(streamBuffer, FRAME_SIZE, streamBuffer, 0, remainingSize)
+                }
+                bufferSize = remainingSize
             }
         }
     }
@@ -299,30 +320,31 @@ class AudxDenoiser private constructor(
         if (processedAudioCallback == null) return@withContext
 
         bufferLock.withLock {
-            if (streamBuffer.isEmpty()) return@withContext
+            if (bufferSize == 0) return@withContext
 
             // Pad remaining samples to complete frame with zeros
-            val remaining = streamBuffer.size
+            val remaining = bufferSize
             val paddingNeeded = FRAME_SIZE - remaining
 
-            if (paddingNeeded > 0) {
-                repeat(paddingNeeded) { streamBuffer.add(0) }
-            }
+            // Create frame with padding
+            val frame = ShortArray(FRAME_SIZE)
+            System.arraycopy(streamBuffer, 0, frame, 0, remaining)
+            // Remaining elements are already zero-initialized in ShortArray
 
             // Process the final padded frame
-            val frame = streamBuffer.toShortArray()
-            streamBuffer.clear()
-
             val output = ShortArray(FRAME_SIZE)
             val result = processNative(nativeHandle, frame, output)
 
             // Deliver only the non-padded portion via callback
             if (result != null) {
-                val actualOutput = output.take(remaining).toShortArray()
+                val actualOutput = output.copyOfRange(0, remaining)
                 processedAudioCallback.invoke(actualOutput, result)
             }
 
-            Log.d(TAG, "Flushed $remaining remaining samples")
+            // Clear buffer
+            bufferSize = 0
+
+            Log.d(TAG, "Flushed $remaining remaining samples (padded with $paddingNeeded zeros)")
         }
     }
 
@@ -346,7 +368,9 @@ class AudxDenoiser private constructor(
     fun destroy() {
         if (nativeHandle != 0L) {
             bufferLock.withLock {
-                streamBuffer.clear()
+                // Reset buffer to initial size to free memory
+                streamBuffer = ShortArray(FRAME_SIZE * 4)
+                bufferSize = 0
             }
             destroyNative(nativeHandle)
             Log.i(TAG, "Denoiser destroyed (handle=$nativeHandle)")
