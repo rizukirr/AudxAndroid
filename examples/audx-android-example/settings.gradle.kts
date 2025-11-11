@@ -16,17 +16,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { setUrl("https://jitpack.io") }
     }
 }
 
 rootProject.name = "Audx Example"
-
-// Include audx-android library module from parent project
-// We need to reference the parent project's settings to properly include the library
-includeBuild("../..") {
-    dependencySubstitution {
-        substitute(module("com.github.rizukirr:audx-android")).using(project(":app"))
-    }
-}
 
 include(":app")
