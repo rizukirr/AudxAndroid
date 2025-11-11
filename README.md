@@ -1,7 +1,7 @@
 # Audx - Android Audio Denoising Library
 
 [![](https://jitpack.io/v/rizukirr/audx-android.svg)](https://jitpack.io/#rizukirr/audx-android)
-[![Version](https://img.shields.io/badge/version-v1.0.0--dev03-blue.svg)](https://github.com/rizukirr/audx-android/releases)
+[![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/rizukirr/audx-android/releases)
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![API](https://img.shields.io/badge/API-24%2B-brightgreen.svg)](https://android-arsenal.com/api?level=24)
 
