@@ -15,62 +15,12 @@ typedef struct RNNModel RNNModel;
 }
 #endif
 
-/**
- * @def AUDX_SAMPLE_RATE_48KHZ
- * @brief Standard audio sample rate used by the denoiser (48 kHz).
- *
- * RNNoise and most real-time speech enhancement models are designed to
- * operate at 48,000 samples per second.
- */
-#define AUDX_SAMPLE_RATE_48KHZ 48000
-
-/**
- * @def AUDX_CHANNELS_MONO
- * @brief Number of audio channels (mono = 1).
- *
- * The denoiser processes single-channel (mono) audio input.
- */
-#define AUDX_CHANNELS_MONO 1
-
-/**
- * @def AUDX_BIT_DEPTH_16
- * @brief Bit depth of the PCM audio format (16 bits per sample).
- *
- * The audio is represented as signed 16-bit integers (PCM_S16LE).
- */
-#define AUDX_BIT_DEPTH_16 16
-
-/**
- * @def AUDX_FRAME_SIZE
- * @brief Frame size in samples for one 10 ms chunk at 48 kHz.
- *
- * RNNoise operates on 480-sample frames (10 ms @ 48 kHz).
- */
-#define AUDX_FRAME_SIZE 480
-
-/**
- * @def AUDX_SUCCESS
- * @brief Operation completed successfully.
- */
-#define AUDX_SUCCESS 0
-
-/**
- * @def AUDX_ERROR_INVALID
- * @brief Invalid argument or unsupported configuration.
- */
-#define AUDX_ERROR_INVALID -1
-
-/**
- * @def AUDX_ERROR_MEMORY
- * @brief Memory allocation failure.
- */
-#define AUDX_ERROR_MEMORY -2
-
-/**
- * @def AUDX_ERROR_MODEL
- * @brief Model loading or initialization failure.
- */
-#define AUDX_ERROR_MODEL -3
+enum {
+  AUDX_DENOISER_SUCCESS = 0,
+  AUDX_DENOISER_ERROR_INVALID = -1,
+  AUDX_DENOISER_ERROR_MEMORY = -2,
+  AUDX_DENOISER_ERROR_MODEL = -3,
+};
 
 /**
  * @struct DenoiserConfig
@@ -345,8 +295,8 @@ const char *get_denoiser_error(struct Denoiser *denoiser);
  * @param stats    Pointer to a DenoiserStats struct to be filled with results.
  *
  * @return
- * - AUDX_SUCCESS (0) on success
- * - AUDX_ERROR_INVALID (-1) if @p denoiser or @p stats is NULL
+ * - AUDX_DENOISER_SUCCESS (0) on success
+ * - AUDX_DENOISER_ERROR_INVALID (-1) if @p denoiser or @p stats is NULL
  *
  * @note This function does not allocate memory. The @p stats pointer must
  *       point to valid writable memory provided by the caller.

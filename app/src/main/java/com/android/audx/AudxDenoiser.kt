@@ -54,19 +54,23 @@ typealias ProcessedAudioCallback = (denoisedAudio: ShortArray, result: DenoiserR
  * Audio denoiser for real-time processing
  *
  * REQUIREMENTS:
- * - Sample rate: 48kHz (48000 Hz)
+ * - Sample rate: 48kHz (48000 Hz) or specify inputSampleRate for automatic resampling
  * - Audio format: 16-bit signed PCM (Short/int16_t)
- * - Frame size: 480 samples (10ms at 48kHz)
+ * - Frame size: 480 samples (10ms at 48kHz) - varies based on inputSampleRate
  * - Channel: Mono (single-channel) only
  *
- * The denoiser processes audio in fixed frames of 480 samples.
+ * The denoiser processes audio in fixed frames. If inputSampleRate is not 48kHz,
+ * audio will be automatically resampled to 48kHz for denoising, then resampled
+ * back to the original rate.
  */
 class AudxDenoiser private constructor(
     modelPreset: ModelPreset,
     vadThreshold: Float,
     enableVadOutput: Boolean,
     private val modelPath: String?,
-    private val processedAudioCallback: ProcessedAudioCallback?
+    private val processedAudioCallback: ProcessedAudioCallback?,
+    private val inputSampleRate: Int,
+    private val resampleQuality: Int
 ) : AutoCloseable {
 
     companion object {
@@ -80,6 +84,12 @@ class AudxDenoiser private constructor(
                 Log.e(TAG, "Failed to load native library", e)
             }
         }
+
+        // Resampler quality constants
+        const val RESAMPLER_QUALITY_MAX = 10
+        const val RESAMPLER_QUALITY_MIN = 0
+        const val RESAMPLER_QUALITY_DEFAULT = 4
+        const val RESAMPLER_QUALITY_VOIP = 3
 
         // Audio format constants from native library (single source of truth)
 
@@ -152,8 +162,11 @@ class AudxDenoiser private constructor(
 
     private var nativeHandle: Long = 0
 
+    // Calculate frame size based on input sample rate (10ms chunks)
+    private val inputFrameSize: Int
+
     // Streaming mode: buffer for accumulating samples until we have a complete frame
-    private var streamBuffer = ShortArray(FRAME_SIZE * 4)  // Initial capacity: 4 frames
+    private var streamBuffer: ShortArray
     private var bufferSize = 0  // Current number of samples in buffer
     private val bufferLock = ReentrantLock()
     private val audioDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -166,6 +179,12 @@ class AudxDenoiser private constructor(
         require(vadThreshold in 0.0f..1.0f) {
             "vadThreshold must be between 0.0 and 1.0"
         }
+        require(inputSampleRate > 0) {
+            "inputSampleRate must be positive"
+        }
+        require(resampleQuality in RESAMPLER_QUALITY_MIN..RESAMPLER_QUALITY_MAX) {
+            "resampleQuality must be between $RESAMPLER_QUALITY_MIN and $RESAMPLER_QUALITY_MAX"
+        }
         if (modelPreset == ModelPreset.CUSTOM) {
             requireNotNull(modelPath) {
                 "modelPath is required when using CUSTOM model preset"
@@ -175,16 +194,23 @@ class AudxDenoiser private constructor(
             }
         }
 
+        // Initialize frame size and buffer AFTER validation
+        inputFrameSize = (inputSampleRate * 10 / 1000) * CHANNELS
+        streamBuffer = ShortArray(inputFrameSize * 4)  // Initial capacity: 4 frames
+
         nativeHandle = createNative(
-            modelPreset.value, modelPath, vadThreshold, enableVadOutput
+            modelPreset.value, modelPath, vadThreshold, enableVadOutput,
+            inputSampleRate, resampleQuality
         )
 
         if (nativeHandle == 0L) {
             throw RuntimeException("Failed to create native denoiser")
         }
 
+        val needsResampling = inputSampleRate != SAMPLE_RATE
         Log.i(
-            TAG, "Denoiser initialized (channels=1, preset=$modelPreset, vad=$vadThreshold)"
+            TAG, "Denoiser initialized (inputRate=$inputSampleRate, preset=$modelPreset, " +
+                    "vad=$vadThreshold, needsResampling=$needsResampling, quality=$resampleQuality)"
         )
     }
 
@@ -193,6 +219,7 @@ class AudxDenoiser private constructor(
      *
      * Example usage:
      * ```
+     * // For 48kHz audio (no resampling)
      * val denoiser = Denoiser.Builder()
      *     .vadThreshold(0.5f)
      *     .onProcessedAudio { denoisedAudio, result ->
@@ -200,7 +227,17 @@ class AudxDenoiser private constructor(
      *     }
      *     .build()
      *
-     * // Feed audio in chunks (must be 48kHz PCM mono)
+     * // For non-48kHz audio (with automatic resampling)
+     * val denoiser = Denoiser.Builder()
+     *     .inputSampleRate(16000)  // Input is 16kHz
+     *     .resampleQuality(RESAMPLER_QUALITY_VOIP)
+     *     .vadThreshold(0.5f)
+     *     .onProcessedAudio { denoisedAudio, result ->
+     *         // Handle denoised audio (16kHz, resampled back from 48kHz)
+     *     }
+     *     .build()
+     *
+     * // Feed audio in chunks
      * denoiser.processChunk(audioData)
      * ```
      */
@@ -210,6 +247,8 @@ class AudxDenoiser private constructor(
         private var vadThreshold: Float = 0.5f
         private var enableVadOutput: Boolean = true
         private var processedAudioCallback: ProcessedAudioCallback? = null
+        private var inputSampleRate: Int = SAMPLE_RATE  // Default to 48kHz (no resampling)
+        private var resampleQuality: Int = RESAMPLER_QUALITY_DEFAULT
 
         /**
          * Set model preset (EMBEDDED or CUSTOM)
@@ -236,8 +275,22 @@ class AudxDenoiser private constructor(
         fun enableVadOutput(value: Boolean) = apply { this.enableVadOutput = value }
 
         /**
+         * Set input sample rate. If not 48kHz, audio will be automatically resampled
+         * to 48kHz for denoising, then resampled back to the original rate.
+         * @param value Input sample rate in Hz (default: 48000)
+         */
+        fun inputSampleRate(value: Int) = apply { this.inputSampleRate = value }
+
+        /**
+         * Set resampling quality (0-10). Only used if inputSampleRate != 48kHz.
+         * 0 = fastest, 10 = best quality
+         * @param value Quality level (default: RESAMPLER_QUALITY_DEFAULT = 4)
+         */
+        fun resampleQuality(value: Int) = apply { this.resampleQuality = value }
+
+        /**
          * Set callback for streaming mode. When set, use processChunk() to feed audio.
-         * The callback receives denoised audio in the same format as input (48kHz, 16-bit PCM).
+         * The callback receives denoised audio in the same format as input.
          *
          * @param callback Function that receives (denoisedAudio, result) for each processed frame
          */
@@ -251,7 +304,9 @@ class AudxDenoiser private constructor(
                 modelPath = modelPath,
                 vadThreshold = vadThreshold,
                 enableVadOutput = enableVadOutput,
-                processedAudioCallback = processedAudioCallback
+                processedAudioCallback = processedAudioCallback,
+                inputSampleRate = inputSampleRate,
+                resampleQuality = resampleQuality
             )
         }
     }
@@ -262,13 +317,14 @@ class AudxDenoiser private constructor(
      * Internally buffers samples until complete frames are available.
      * Processed audio is delivered via the callback set in Builder.onProcessedAudio()
      *
-     * IMPORTANT: Input audio must be 48kHz, 16-bit PCM mono format.
+     * IMPORTANT: Input audio must match the inputSampleRate specified in Builder,
+     * 16-bit PCM mono format. If inputSampleRate != 48kHz, resampling is handled automatically.
      *
      * Performance: Uses primitive array buffer to avoid boxing overhead and GC pressure
      * during continuous real-time streaming. After initial warm-up, operates with
      * zero allocations per chunk (except for frame output arrays).
      *
-     * @param input Audio samples at 48kHz mono (any size, will be buffered internally)
+     * @param input Audio samples at the specified inputSampleRate (any size, will be buffered internally)
      * @throws IllegalStateException if no callback was set in builder
      * @throws IllegalArgumentException if audio chunk is invalid
      */
@@ -304,12 +360,12 @@ class AudxDenoiser private constructor(
             bufferSize += input.size
 
             // Process all complete frames in the buffer
-            while (bufferSize >= FRAME_SIZE) {
+            while (bufferSize >= inputFrameSize) {
                 // Extract frame directly from buffer (single allocation)
-                val frame = streamBuffer.copyOfRange(0, FRAME_SIZE)
+                val frame = streamBuffer.copyOfRange(0, inputFrameSize)
 
-                // Process the frame
-                val output = ShortArray(FRAME_SIZE)
+                // Process the frame (resampling handled in native code)
+                val output = ShortArray(inputFrameSize)
                 val result = processNative(nativeHandle, frame, output)
 
                 // Deliver via callback
@@ -320,9 +376,9 @@ class AudxDenoiser private constructor(
                 }
 
                 // Remove processed frame from buffer using fast native memcpy
-                val remainingSize = bufferSize - FRAME_SIZE
+                val remainingSize = bufferSize - inputFrameSize
                 if (remainingSize > 0) {
-                    System.arraycopy(streamBuffer, FRAME_SIZE, streamBuffer, 0, remainingSize)
+                    System.arraycopy(streamBuffer, inputFrameSize, streamBuffer, 0, remainingSize)
                 }
                 bufferSize = remainingSize
             }
@@ -344,15 +400,15 @@ class AudxDenoiser private constructor(
 
             // Pad remaining samples to complete frame with zeros
             val remaining = bufferSize
-            val paddingNeeded = FRAME_SIZE - remaining
+            val paddingNeeded = inputFrameSize - remaining
 
             // Create frame with padding
-            val frame = ShortArray(FRAME_SIZE)
+            val frame = ShortArray(inputFrameSize)
             System.arraycopy(streamBuffer, 0, frame, 0, remaining)
             // Remaining elements are already zero-initialized in ShortArray
 
             // Process the final padded frame
-            val output = ShortArray(FRAME_SIZE)
+            val output = ShortArray(inputFrameSize)
             val result = processNative(nativeHandle, frame, output)
 
             // Deliver only the non-padded portion via callback
@@ -429,7 +485,7 @@ class AudxDenoiser private constructor(
         if (nativeHandle != 0L) {
             bufferLock.withLock {
                 // Reset buffer to initial size to free memory
-                streamBuffer = ShortArray(FRAME_SIZE * 4)
+                streamBuffer = ShortArray(inputFrameSize * 4)
                 bufferSize = 0
             }
             destroyNative(nativeHandle)
@@ -440,7 +496,8 @@ class AudxDenoiser private constructor(
 
     // Native bindings
     private external fun createNative(
-        modelPreset: Int, modelPath: String?, vadThreshold: Float, enableVadOutput: Boolean
+        modelPreset: Int, modelPath: String?, vadThreshold: Float, enableVadOutput: Boolean,
+        inputSampleRate: Int, resampleQuality: Int
     ): Long
 
     private external fun destroyNative(handle: Long)

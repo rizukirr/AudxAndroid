@@ -515,7 +515,7 @@ class DenoiserInstrumentedTest {
             assertTrue(
                 "Error message should mention invalid chunk",
                 e.message?.contains("chunk", ignoreCase = true) == true ||
-                e.message?.contains("empty", ignoreCase = true) == true
+                        e.message?.contains("empty", ignoreCase = true) == true
             )
         }
     }
@@ -596,7 +596,7 @@ class DenoiserInstrumentedTest {
         val audioData = loadPcmAudioFromRaw(R.raw.noise_audio)
         val frameSize = AudxDenoiser.FRAME_SIZE
 
-        audxDenoiser  = AudxDenoiser.Builder()
+        audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
             .onProcessedAudio { _, _ -> }
             .build()
@@ -617,20 +617,34 @@ class DenoiserInstrumentedTest {
 
         assertNotNull("Stats should not be null", stats)
         assertEquals("Frame count should be 5", 5, stats!!.frameProcessed)
-        assertTrue("Speech percentage should be in range 0-100",
-            stats.speechDetectedPercent in 0.0f..100.0f)
-        assertTrue("VAD avg should be in range 0-1",
-            stats.vadScoreAvg in 0.0f..1.0f)
-        assertTrue("VAD min should be in range 0-1",
-            stats.vadScoreMin in 0.0f..1.0f)
-        assertTrue("VAD max should be in range 0-1",
-            stats.vadScoreMax in 0.0f..1.0f)
-        assertTrue("Processing time total should be >= 0",
-            stats.processingTimeTotal >= 0.0f)
-        assertTrue("Processing time avg should be >= 0",
-            stats.processingTimeAvg >= 0.0f)
-        assertTrue("Processing time last should be >= 0",
-            stats.processingTimeLast >= 0.0f)
+        assertTrue(
+            "Speech percentage should be in range 0-100",
+            stats.speechDetectedPercent in 0.0f..100.0f
+        )
+        assertTrue(
+            "VAD avg should be in range 0-1",
+            stats.vadScoreAvg in 0.0f..1.0f
+        )
+        assertTrue(
+            "VAD min should be in range 0-1",
+            stats.vadScoreMin in 0.0f..1.0f
+        )
+        assertTrue(
+            "VAD max should be in range 0-1",
+            stats.vadScoreMax in 0.0f..1.0f
+        )
+        assertTrue(
+            "Processing time total should be >= 0",
+            stats.processingTimeTotal >= 0.0f
+        )
+        assertTrue(
+            "Processing time avg should be >= 0",
+            stats.processingTimeAvg >= 0.0f
+        )
+        assertTrue(
+            "Processing time last should be >= 0",
+            stats.processingTimeLast >= 0.0f
+        )
     }
 
     @Test
@@ -666,13 +680,19 @@ class DenoiserInstrumentedTest {
         // Note: On very fast devices/emulators (x86_64 with AVX), processing can be
         // < 0.1ms per frame, which may round to same float value. We verify timing
         // is non-negative and non-decreasing rather than strictly increasing.
-        assertTrue("Total processing time should be non-negative after frame 1",
-            (stats1?.processingTimeTotal ?: -1.0f) >= 0.0f)
-        assertTrue("Total processing time should be non-negative after frame 10",
-            (stats2?.processingTimeTotal ?: -1.0f) >= 0.0f)
+        assertTrue(
+            "Total processing time should be non-negative after frame 1",
+            (stats1?.processingTimeTotal ?: -1.0f) >= 0.0f
+        )
+        assertTrue(
+            "Total processing time should be non-negative after frame 10",
+            (stats2?.processingTimeTotal ?: -1.0f) >= 0.0f
+        )
         // Verify it either increases OR stays non-negative (on very fast devices/emulators)
-        assertTrue("Total processing time should increase or stay non-negative",
-            (stats2?.processingTimeTotal ?: 0.0f) >= (stats1?.processingTimeTotal ?: 0.0f))
+        assertTrue(
+            "Total processing time should increase or stay non-negative",
+            (stats2?.processingTimeTotal ?: 0.0f) >= (stats1?.processingTimeTotal ?: 0.0f)
+        )
     }
 
     @Test
@@ -703,10 +723,14 @@ class DenoiserInstrumentedTest {
 
         val statsAfterReset = audxDenoiser?.getStats()
         assertEquals("Frame count should be 0 after reset", 0, statsAfterReset?.frameProcessed)
-        assertEquals("Speech percentage should be 0 after reset",
-            0.0f, statsAfterReset?.speechDetectedPercent)
-        assertEquals("Processing time total should be 0 after reset",
-            0.0f, statsAfterReset?.processingTimeTotal)
+        assertEquals(
+            "Speech percentage should be 0 after reset",
+            0.0f, statsAfterReset?.speechDetectedPercent
+        )
+        assertEquals(
+            "Processing time total should be 0 after reset",
+            0.0f, statsAfterReset?.processingTimeTotal
+        )
     }
 
     @Test
@@ -727,10 +751,14 @@ class DenoiserInstrumentedTest {
         audxDenoiser?.flush()
 
         val statsAfterFlush = audxDenoiser?.getStats()
-        assertEquals("Frame count should still be 1 after flush",
-            1, statsAfterFlush?.frameProcessed)
-        assertEquals("Stats should persist across flush",
-            statsBeforeFlush?.processingTimeTotal, statsAfterFlush?.processingTimeTotal)
+        assertEquals(
+            "Frame count should still be 1 after flush",
+            1, statsAfterFlush?.frameProcessed
+        )
+        assertEquals(
+            "Stats should persist across flush",
+            statsBeforeFlush?.processingTimeTotal, statsAfterFlush?.processingTimeTotal
+        )
     }
 
     @Test
@@ -764,14 +792,22 @@ class DenoiserInstrumentedTest {
         val actualMin = vadScores.minOrNull() ?: 1.0f
         val actualMax = vadScores.maxOrNull() ?: 0.0f
 
-        assertEquals("VAD min should match actual minimum",
-            actualMin, stats!!.vadScoreMin, 0.001f)
-        assertEquals("VAD max should match actual maximum",
-            actualMax, stats.vadScoreMax, 0.001f)
-        assertTrue("VAD min should be <= VAD avg",
-            stats.vadScoreMin <= stats.vadScoreAvg)
-        assertTrue("VAD max should be >= VAD avg",
-            stats.vadScoreMax >= stats.vadScoreAvg)
+        assertEquals(
+            "VAD min should match actual minimum",
+            actualMin, stats!!.vadScoreMin, 0.001f
+        )
+        assertEquals(
+            "VAD max should match actual maximum",
+            actualMax, stats.vadScoreMax, 0.001f
+        )
+        assertTrue(
+            "VAD min should be <= VAD avg",
+            stats.vadScoreMin <= stats.vadScoreAvg
+        )
+        assertTrue(
+            "VAD max should be >= VAD avg",
+            stats.vadScoreMax >= stats.vadScoreAvg
+        )
     }
 
     @Test
@@ -807,8 +843,10 @@ class DenoiserInstrumentedTest {
         assertNotNull("Stats must be not null", stats)
         val expectedPercentage = (speechFrameCount.toFloat() / totalFrameCount.toFloat()) * 100f
 
-        assertEquals("Speech percentage should match calculated value",
-            expectedPercentage, stats!!.speechDetectedPercent, 0.1f)
+        assertEquals(
+            "Speech percentage should match calculated value",
+            expectedPercentage, stats!!.speechDetectedPercent, 0.1f
+        )
     }
 
     @Test
@@ -828,10 +866,14 @@ class DenoiserInstrumentedTest {
         val stats = audxDenoiser?.getStats()
 
         // Processing time should be reasonable (< 100ms per frame for real-time)
-        assertTrue("Processing time should be < 100ms per frame",
-            (stats?.processingTimeAvg ?: Float.MAX_VALUE) < 100.0f)
-        assertTrue("Last frame time should be >= 0",
-            (stats?.processingTimeLast ?: -1.0f) >= 0.0f)
+        assertTrue(
+            "Processing time should be < 100ms per frame",
+            (stats?.processingTimeAvg ?: Float.MAX_VALUE) < 100.0f
+        )
+        assertTrue(
+            "Last frame time should be >= 0",
+            (stats?.processingTimeLast ?: -1.0f) >= 0.0f
+        )
     }
 
     @Test
@@ -845,8 +887,10 @@ class DenoiserInstrumentedTest {
             audxDenoiser?.getStats()
             fail("Should throw exception when getting stats from destroyed denoiser")
         } catch (e: IllegalStateException) {
-            assertTrue("Should throw IllegalStateException",
-                e.message?.contains("destroyed") == true)
+            assertTrue(
+                "Should throw IllegalStateException",
+                e.message?.contains("destroyed") == true
+            )
         }
     }
 
@@ -861,8 +905,10 @@ class DenoiserInstrumentedTest {
             audxDenoiser?.resetStats()
             fail("Should throw exception when resetting stats of destroyed denoiser")
         } catch (e: IllegalStateException) {
-            assertTrue("Should throw IllegalStateException",
-                e.message?.contains("destroyed") == true)
+            assertTrue(
+                "Should throw IllegalStateException",
+                e.message?.contains("destroyed") == true
+            )
         }
     }
 
@@ -901,6 +947,333 @@ class DenoiserInstrumentedTest {
         }
         val session2Stats = audxDenoiser?.getStats()
         assertEquals("Session 2 should have 3 frames", 3, session2Stats?.frameProcessed)
+    }
+
+    // ==================== Resampler Tests ====================
+
+    @Test
+    fun testResamplerConstants() {
+        assertEquals("RESAMPLER_QUALITY_MIN should be 0", 0, AudxDenoiser.RESAMPLER_QUALITY_MIN)
+        assertEquals("RESAMPLER_QUALITY_MAX should be 10", 10, AudxDenoiser.RESAMPLER_QUALITY_MAX)
+        assertEquals(
+            "RESAMPLER_QUALITY_DEFAULT should be 4",
+            4,
+            AudxDenoiser.RESAMPLER_QUALITY_DEFAULT
+        )
+        assertEquals("RESAMPLER_QUALITY_VOIP should be 3", 3, AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+    }
+
+    @Test
+    fun testDenoiser_WithDefaultSampleRate_NoResampling() = runBlocking {
+        // Default is 48kHz, no resampling needed
+        val frameSize = AudxDenoiser.FRAME_SIZE // 480 samples for 48kHz
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .vadThreshold(0.5f)
+            .onProcessedAudio { audio, _ ->
+                callbackCount++
+                assertEquals("Output frame should be $frameSize samples", frameSize, audio.size)
+            }
+            .build()
+
+        val frame = ShortArray(frameSize) { (it % 100).toShort() }
+        audxDenoiser?.processChunk(frame)
+
+        assertEquals("Should process 1 frame", 1, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_With16kHzInput_AutomaticResampling() = runBlocking {
+        // 16kHz input, should be resampled to 48kHz for processing, then back to 16kHz
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000) // 160 samples for 10ms at 16kHz
+        var callbackCount = 0
+        var outputSize = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { audio, result ->
+                callbackCount++
+                outputSize = audio.size
+                assertNotNull("Result should not be null", result)
+            }
+            .build()
+
+        val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+        audxDenoiser?.processChunk(frame)
+
+        assertEquals("Should process 1 frame", 1, callbackCount)
+        assertEquals(
+            "Output should be same size as input ($inputFrameSize)",
+            inputFrameSize,
+            outputSize
+        )
+    }
+
+    @Test
+    fun testDenoiser_With24kHzInput_AutomaticResampling() = runBlocking {
+        val inputSampleRate = 24000
+        val inputFrameSize = (inputSampleRate * 10 / 1000) // 240 samples for 10ms at 24kHz
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { audio, _ ->
+                callbackCount++
+                assertEquals("Output should match input frame size", inputFrameSize, audio.size)
+            }
+            .build()
+
+        val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+        audxDenoiser?.processChunk(frame)
+
+        assertEquals("Should process 1 frame", 1, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_With8kHzInput_AutomaticResampling() = runBlocking {
+        val inputSampleRate = 8000
+        val inputFrameSize = (inputSampleRate * 10 / 1000) // 80 samples for 10ms at 8kHz
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { audio, _ ->
+                callbackCount++
+                assertEquals("Output should match input frame size", inputFrameSize, audio.size)
+            }
+            .build()
+
+        val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+        audxDenoiser?.processChunk(frame)
+
+        assertEquals("Should process 1 frame", 1, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_MultipleFrames() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000) // 160 samples
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { _, _ ->
+                callbackCount++
+            }
+            .build()
+
+        // Process 5 frames
+        repeat(5) {
+            val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+            audxDenoiser?.processChunk(frame)
+        }
+
+        assertEquals("Should process 5 frames", 5, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_SmallChunksBuffering() = runBlocking {
+        val inputSampleRate = 16000
+        val chunkSize = 50 // Smaller than frame size
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { _, _ ->
+                callbackCount++
+            }
+            .build()
+
+        // Process multiple small chunks (total: 500 samples = 3 complete frames at 16kHz)
+        repeat(10) {
+            val chunk = ShortArray(chunkSize) { (it % 100).toShort() }
+            audxDenoiser?.processChunk(chunk)
+        }
+
+        assertEquals("Should process 3 complete frames (480/160)", 3, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_FlushRemainingData() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000) // 160 samples
+        val partialSize = inputFrameSize / 2 // 80 samples (half frame)
+        var callbackCount = 0
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { _, _ ->
+                callbackCount++
+            }
+            .build()
+
+        // Send partial frame
+        val partialFrame = ShortArray(partialSize) { (it % 100).toShort() }
+        audxDenoiser?.processChunk(partialFrame)
+
+        assertEquals("Should not process incomplete frame", 0, callbackCount)
+
+        // Flush should process remaining data
+        audxDenoiser?.flush()
+
+        assertEquals("Should process flushed frame", 1, callbackCount)
+    }
+
+    @Test
+    fun testDenoiser_ResamplingQualityLevels() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000)
+
+        // Test all quality levels
+        val qualityLevels = listOf(
+            AudxDenoiser.RESAMPLER_QUALITY_MIN,
+            AudxDenoiser.RESAMPLER_QUALITY_VOIP,
+            AudxDenoiser.RESAMPLER_QUALITY_DEFAULT,
+            AudxDenoiser.RESAMPLER_QUALITY_MAX
+        )
+
+        qualityLevels.forEach { quality ->
+            var callbackInvoked = false
+            val denoiser = AudxDenoiser.Builder()
+                .inputSampleRate(inputSampleRate)
+                .resampleQuality(quality)
+                .vadThreshold(0.5f)
+                .onProcessedAudio { _, _ ->
+                    callbackInvoked = true
+                }
+                .build()
+
+            val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+            denoiser.processChunk(frame)
+
+            assertTrue("Quality level $quality should work", callbackInvoked)
+            denoiser.destroy()
+        }
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_VadProbabilityInRange() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000)
+        val vadProbabilities = mutableListOf<Float>()
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { _, result ->
+                vadProbabilities.add(result.vadProbability)
+            }
+            .build()
+
+        // Process multiple frames
+        repeat(10) {
+            val frame = ShortArray(inputFrameSize) { (it % 1000).toShort() }
+            audxDenoiser?.processChunk(frame)
+        }
+
+        assertTrue("Should have VAD probabilities", vadProbabilities.isNotEmpty())
+        vadProbabilities.forEach { prob ->
+            assertTrue("VAD probability should be >= 0.0: $prob", prob >= 0.0f)
+            assertTrue("VAD probability should be <= 1.0: $prob", prob <= 1.0f)
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testDenoiser_InvalidResampleQuality_TooLow() {
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(16000)
+            .resampleQuality(-1)
+            .build()
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testDenoiser_InvalidResampleQuality_TooHigh() {
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(16000)
+            .resampleQuality(11)
+            .build()
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testDenoiser_InvalidInputSampleRate_Zero() {
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(0)
+            .build()
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testDenoiser_InvalidInputSampleRate_Negative() {
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(-1000)
+            .build()
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_OutputNotAllZeros() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000)
+        var lastReceivedAudio: ShortArray? = null
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { audio, _ ->
+                lastReceivedAudio = audio
+            }
+            .build()
+
+        // Process a few frames to warm up
+        repeat(3) {
+            val frame = ShortArray(inputFrameSize) { ((it * 100) % 1000).toShort() }
+            audxDenoiser?.processChunk(frame)
+        }
+
+        assertNotNull("Received audio should not be null", lastReceivedAudio)
+        val hasNonZero = lastReceivedAudio?.any { it != 0.toShort() } ?: false
+        assertTrue("Output should contain non-zero values", hasNonZero)
+    }
+
+    @Test
+    fun testDenoiser_WithResampling_StatsTracking() = runBlocking {
+        val inputSampleRate = 16000
+        val inputFrameSize = (inputSampleRate * 10 / 1000)
+
+        audxDenoiser = AudxDenoiser.Builder()
+            .inputSampleRate(inputSampleRate)
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
+            .vadThreshold(0.5f)
+            .onProcessedAudio { _, _ -> }
+            .build()
+
+        // Process frames
+        repeat(5) {
+            val frame = ShortArray(inputFrameSize) { (it % 100).toShort() }
+            audxDenoiser?.processChunk(frame)
+        }
+
+        val stats = audxDenoiser?.getStats()
+        assertNotNull("Stats should not be null", stats)
+        assertEquals("Frame count should be 5", 5, stats?.frameProcessed)
+        assertTrue(
+            "Processing time should be reasonable",
+            (stats?.processingTimeAvg ?: Float.MAX_VALUE) < 100.0f
+        )
     }
 
     // ==================== Helper Methods ====================
