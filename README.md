@@ -1,4 +1,4 @@
-# Audx - Android Audio Denoising Library
+# Audx - Android Realtime Audio Denoising Library
 
 [![](https://jitpack.io/v/rizukirr/audx-android.svg)](https://jitpack.io/#rizukirr/audx-android)
 [![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/rizukirr/audx-android/releases)
@@ -14,7 +14,7 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 - ✅ Audio format validation with clear error messages
 - ✅ Mono audio processing optimized for performance
 - ✅ Automatic internal buffering for variable chunk sizes
-- ✅ Kotlin coroutines support
+- ✅ A richer statistics API for real-time monitoring
 - ✅ Custom model support for specialized environments
 - ✅ ARM NEON & x86 SIMD optimizations
 
@@ -87,3 +87,12 @@ See [LICENSE](LICENSE) file for details.
 ## Credits
 
 Built with [audx-realtime](https://github.com/rizukirr/audx-realtime) - Audio denoising library based on [Xiph.Org RNNoise](https://github.com/xiph/rnnoise).
+
+---
+
+💖 **Support This Project**
+
+If you find this project helpful, consider supporting its development:  
+☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
+
+Made with ❤️ by [rizukirr](https://github.com/rizukirr)
