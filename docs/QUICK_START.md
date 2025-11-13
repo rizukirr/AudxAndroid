@@ -2,9 +2,11 @@
 
 ## Requirements Checklist
 
-- **Sample Rate**: 48kHz (48000 Hz)
+- **Sample Rate**: Any positive sample rate (automatically resampled to 48kHz internally)
+  - Native processing: 48kHz (48000 Hz)
+  - Common rates: 8kHz, 16kHz, 44.1kHz, 48kHz
 - **Audio Format**: 16-bit signed PCM
-- **Frame Size**: 480 samples (10ms)
+- **Frame Size**: Varies based on input sample rate (10ms chunks)
 - **Channels**: Mono only (1 channel)
 
 ## Basic Usage (3 Steps)
@@ -12,6 +14,7 @@
 ### Step 1: Create Denoiser
 
 ```kotlin
+// Option 1: For 48kHz audio (no resampling)
 val denoiser = AudxDenoiser.Builder()
     .vadThreshold(0.5f)          // Speech detection threshold (0.0-1.0)
     .onProcessedAudio { audio, result ->
@@ -19,7 +22,21 @@ val denoiser = AudxDenoiser.Builder()
         if (result.isSpeech) {
             Log.d("VAD", "Speech: ${result.vadProbability}")
         }
-        // Use 'audio' (denoised ShortArray)
+        // Use 'audio' (denoised ShortArray at 48kHz)
+    }
+    .build()
+
+// Option 2: For non-48kHz audio (with automatic resampling)
+val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)      // Input is 16kHz
+    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Quality level
+    .vadThreshold(0.5f)
+    .onProcessedAudio { audio, result ->
+        // Handle denoised audio (called every 10ms)
+        // Audio is resampled back to 16kHz
+        if (result.isSpeech) {
+            Log.d("VAD", "Speech: ${result.vadProbability}")
+        }
     }
     .build()
 ```
@@ -27,7 +44,8 @@ val denoiser = AudxDenoiser.Builder()
 ### Step 2: Feed Audio
 
 ```kotlin
-// audioData must be 48kHz 16-bit PCM samples (ShortArray)
+// audioData can be any sample rate (16-bit PCM mono)
+// If inputSampleRate is specified, audio will be resampled automatically
 lifecycleScope.launch {
     denoiser.processChunk(audioData)  // Any size, buffered internally
 }
@@ -42,6 +60,8 @@ denoiser.destroy()  // Release resources
 
 ## Complete Android Example
 
+### Example 1: 48kHz Audio (No Resampling)
+
 ```kotlin
 class MyActivity : AppCompatActivity() {
     private lateinit var denoiser: AudxDenoiser
@@ -50,11 +70,11 @@ class MyActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     fun startRecording() {
-        // 1. Create denoiser
+        // 1. Create denoiser (48kHz, no resampling)
         denoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
             .onProcessedAudio { denoisedAudio, result ->
-                // Handle 10ms of denoised audio
+                // Handle 10ms of denoised audio at 48kHz
                 handleAudio(denoisedAudio, result.isSpeech)
             }
             .build()
@@ -68,7 +88,7 @@ class MyActivity : AppCompatActivity() {
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            48000,  // Must be 48kHz!
+            48000,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
             bufferSize
@@ -108,18 +128,115 @@ class MyActivity : AppCompatActivity() {
 }
 ```
 
+### Example 2: 16kHz Audio (With Automatic Resampling)
+
+```kotlin
+class MyActivity : AppCompatActivity() {
+    private lateinit var denoiser: AudxDenoiser
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+
+    @SuppressLint("MissingPermission")
+    fun startRecording() {
+        // 1. Create denoiser with resampling for 16kHz input
+        denoiser = AudxDenoiser.Builder()
+            .inputSampleRate(16000)  // Specify input is 16kHz
+            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // VoIP quality
+            .vadThreshold(0.5f)
+            .onProcessedAudio { denoisedAudio, result ->
+                // Handle 10ms of denoised audio at 16kHz (resampled back)
+                handleAudio(denoisedAudio, result.isSpeech)
+            }
+            .build()
+
+        // 2. Create AudioRecord at 16kHz
+        val bufferSize = AudioRecord.getMinBufferSize(
+            16000,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        ) * 2
+
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            16000,  // 16kHz input
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize
+        )
+
+        // 3. Start recording
+        isRecording = true
+        audioRecord?.startRecording()
+
+        // 4. Process in background
+        lifecycleScope.launch(Dispatchers.IO) {
+            val buffer = ShortArray(320)  // 20ms buffer at 16kHz
+            while (isRecording) {
+                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                if (read > 0) {
+                    // Audio is automatically resampled to 48kHz for processing,
+                    // then resampled back to 16kHz in the callback
+                    denoiser.processChunk(buffer.copyOf(read))
+                }
+            }
+        }
+    }
+
+    fun stopRecording() {
+        isRecording = false
+        lifecycleScope.launch {
+            denoiser.flush()
+            delay(50)
+            audioRecord?.stop()
+            audioRecord?.release()
+            denoiser.destroy()
+        }
+    }
+
+    private fun handleAudio(audio: ShortArray, isSpeech: Boolean) {
+        // Your audio processing here
+        // audio is 16kHz 16-bit PCM, denoised
+    }
+}
+```
+
 ## Key Constants
 
 ```kotlin
-AudxDenoiser.SAMPLE_RATE          // 48000 Hz
+// Audio format constants
+AudxDenoiser.SAMPLE_RATE          // 48000 Hz (native processing rate)
 AudxDenoiser.CHANNELS             // 1 (mono only)
 AudxDenoiser.BIT_DEPTH            // 16 (16-bit PCM)
-AudxDenoiser.FRAME_SIZE           // 480 samples
+AudxDenoiser.FRAME_SIZE           // 480 samples (at 48kHz)
 AudxDenoiser.getFrameDurationMs() // 10ms
 AudxDenoiser.getRecommendedBufferSize(10)  // Buffer size in bytes for 10ms
+
+// Resampling quality constants
+AudxDenoiser.RESAMPLER_QUALITY_MAX      // 10 - Best quality
+AudxDenoiser.RESAMPLER_QUALITY_DEFAULT  // 4 - Balanced (default)
+AudxDenoiser.RESAMPLER_QUALITY_VOIP     // 3 - Optimized for VoIP
+AudxDenoiser.RESAMPLER_QUALITY_MIN      // 0 - Fastest
 ```
 
 ## Configuration Options
+
+### Input Sample Rate
+
+```kotlin
+.inputSampleRate(16000)  // Default: 48000 (no resampling)
+// Automatically resamples to 48kHz for processing, then back to original rate
+// Common values: 8000, 16000, 44100, 48000
+```
+
+### Resampling Quality
+
+```kotlin
+.resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Default: RESAMPLER_QUALITY_DEFAULT
+// RESAMPLER_QUALITY_MIN (0) = fastest, lower quality
+// RESAMPLER_QUALITY_VOIP (3) = optimized for voice
+// RESAMPLER_QUALITY_DEFAULT (4) = balanced
+// RESAMPLER_QUALITY_MAX (10) = best quality, slower
+```
 
 ### VAD Threshold
 
@@ -143,19 +260,41 @@ AudxDenoiser.getRecommendedBufferSize(10)  // Buffer size in bytes for 10ms
 .enableVadOutput(false)  // Skips VAD calculation
 ```
 
-## AudioRecord Setup for 48kHz
+## AudioRecord Setup
+
+### For 48kHz (No Resampling)
 
 ```kotlin
 val audioRecord = AudioRecord(
     MediaRecorder.AudioSource.VOICE_RECOGNITION,  // Best for speech
-    48000,                                         // Must be 48kHz
+    48000,                                         // 48kHz
     AudioFormat.CHANNEL_IN_MONO,                   // Mono only
     AudioFormat.ENCODING_PCM_16BIT,                // Must be 16-bit
     bufferSize
 )
 ```
 
+### For 16kHz (With Resampling)
+
+```kotlin
+val audioRecord = AudioRecord(
+    MediaRecorder.AudioSource.VOICE_RECOGNITION,  // Best for speech
+    16000,                                         // 16kHz input
+    AudioFormat.CHANNEL_IN_MONO,                   // Mono only
+    AudioFormat.ENCODING_PCM_16BIT,                // Must be 16-bit
+    bufferSize
+)
+
+// Configure denoiser with matching input rate
+val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)  // Must match AudioRecord sample rate
+    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+    .build()
+```
+
 ## Processing Flow
+
+### Without Resampling (48kHz)
 
 ```
 AudioRecord (48kHz PCM)
@@ -164,11 +303,31 @@ processChunk(ShortArray)
     ↓
 [Internal buffering to 480-sample frames]
     ↓
-Audio Processing
+Audio Processing (48kHz)
     ↓
 onProcessedAudio callback
     ↓
-Denoised audio + VAD result
+Denoised audio + VAD result (48kHz)
+```
+
+### With Resampling (e.g., 16kHz)
+
+```
+AudioRecord (16kHz PCM)
+    ↓
+processChunk(ShortArray)
+    ↓
+[Internal buffering to 160-sample frames at 16kHz]
+    ↓
+Resample to 48kHz (480 samples)
+    ↓
+Audio Processing (48kHz)
+    ↓
+Resample back to 16kHz (160 samples)
+    ↓
+onProcessedAudio callback
+    ↓
+Denoised audio + VAD result (16kHz)
 ```
 
 ## Example Files
@@ -177,10 +336,30 @@ Denoised audio + VAD result
 
 ## Common Mistakes
 
-### ❌ Wrong sample rate
+### ❌ Mismatched sample rates
 
 ```kotlin
-AudioRecord(..., 16000, ...)  // WRONG! Must be 48000
+// AudioRecord is 16kHz
+AudioRecord(..., 16000, ...)
+
+// But denoiser is configured for 48kHz (default)
+val denoiser = AudxDenoiser.Builder()
+    // Missing .inputSampleRate(16000)
+    .build()
+
+// WRONG! Sample rates must match
+```
+
+✅ **Correct:**
+
+```kotlin
+// AudioRecord is 16kHz
+AudioRecord(..., 16000, ...)
+
+// Denoiser configured with matching input rate
+val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)  // Must match AudioRecord
+    .build()
 ```
 
 ### ❌ Not using coroutines for processChunk
@@ -225,16 +404,28 @@ val buffer = ShortArray(480)  // ShortArray for 16-bit PCM
 
 ## Testing
 
-### Check if 48kHz is supported
+### Check if sample rate is supported
 
 ```kotlin
-val bufferSize = AudioRecord.getMinBufferSize(
+// Check if 48kHz is supported
+val bufferSize48k = AudioRecord.getMinBufferSize(
     48000,
     AudioFormat.CHANNEL_IN_MONO,
     AudioFormat.ENCODING_PCM_16BIT
 )
-if (bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+if (bufferSize48k == AudioRecord.ERROR_BAD_VALUE) {
     Log.e(TAG, "48kHz not supported on this device!")
+    // Use lower sample rate with resampling
+}
+
+// Check if 16kHz is supported
+val bufferSize16k = AudioRecord.getMinBufferSize(
+    16000,
+    AudioFormat.CHANNEL_IN_MONO,
+    AudioFormat.ENCODING_PCM_16BIT
+)
+if (bufferSize16k == AudioRecord.ERROR_BAD_VALUE) {
+    Log.e(TAG, "16kHz not supported on this device!")
 }
 ```
 

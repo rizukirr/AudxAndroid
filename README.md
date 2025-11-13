@@ -11,6 +11,7 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 
 - ✅ Real-time audio denoising with RNNoise algorithm
 - ✅ Voice Activity Detection (VAD) with configurable threshold
+- ✅ **Automatic resampling** for non-48kHz audio input
 - ✅ Audio format validation with clear error messages
 - ✅ Mono audio processing optimized for performance
 - ✅ Automatic internal buffering for variable chunk sizes
@@ -21,18 +22,21 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 ## Quick Start
 
 ```kotlin
-// 1. Create denoiser
+// 1. Create denoiser (with automatic resampling for non-48kHz audio)
 val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)  // Optional: Specify input rate if not 48kHz (e.g., 16kHz)
+    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Optional: Quality level
     .vadThreshold(0.5f)
     .onProcessedAudio { audio, result ->
         // Handle denoised audio + VAD result
+        // Audio is resampled back to original input rate (16kHz in this example)
         Log.d("VAD", "Speech: ${result.isSpeech}, prob: ${result.vadProbability}")
     }
     .build()
 
-// 2. Feed audio (48kHz 16-bit PCM mono)
+// 2. Feed audio (any sample rate, 16-bit PCM mono)
 lifecycleScope.launch {
-    denoiser.processChunk(audioData)
+    denoiser.processChunk(audioData)  // Input at 16kHz, automatically resampled
 }
 
 // 3. Cleanup
@@ -42,13 +46,22 @@ denoiser.destroy()
 
 ## Requirements
 
-- **Sample Rate**: 48kHz (48000 Hz)
+- **Sample Rate**: Any positive sample rate (automatically resampled to 48kHz internally)
+  - Native processing: 48kHz (48000 Hz)
+  - Common rates: 8kHz, 16kHz, 44.1kHz, 48kHz
 - **Channels**: Mono only (1 channel)
 - **Audio Format**: 16-bit signed PCM
-- **Frame Size**: 480 samples (10ms)
+- **Frame Size**: Varies based on input sample rate (10ms chunks)
 - **Min SDK**: 24 (Android 7.0)
 
 All constants available from native library: `AudxDenoiser.SAMPLE_RATE`, `AudxDenoiser.CHANNELS`, `AudxDenoiser.BIT_DEPTH`, `AudxDenoiser.FRAME_SIZE`
+
+### Resampling Quality Constants
+
+- `AudxDenoiser.RESAMPLER_QUALITY_MAX` (10) - Best quality
+- `AudxDenoiser.RESAMPLER_QUALITY_DEFAULT` (4) - Balanced (default)
+- `AudxDenoiser.RESAMPLER_QUALITY_VOIP` (3) - Optimized for VoIP
+- `AudxDenoiser.RESAMPLER_QUALITY_MIN` (0) - Fastest
 
 ## Installation
 

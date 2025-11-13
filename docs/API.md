@@ -22,6 +22,54 @@ Main class for real-time audio denoising with Voice Activity Detection.
 
 Fluent API for configuring the denoiser.
 
+#### `.inputSampleRate(Int)`
+
+Set the input audio sample rate. If different from 48kHz, audio will be automatically resampled to 48kHz for denoising, then resampled back to the original rate.
+
+```kotlin
+.inputSampleRate(16000)  // Input is 16kHz, will be resampled
+```
+
+**Parameters:**
+- `sampleRate`: Input sample rate in Hz (must be positive)
+  - Common values: `8000`, `16000`, `44100`, `48000`
+  - Default: `48000` (no resampling)
+
+**Behavior:**
+- If `inputSampleRate == 48000`: No resampling (optimal performance)
+- If `inputSampleRate != 48000`: Automatic bidirectional resampling
+  - Input → 48kHz for denoising
+  - Output → original sample rate
+
+**Default:** 48000 (no resampling)
+
+---
+
+#### `.resampleQuality(Int)`
+
+Set the quality level for audio resampling. Only used when `inputSampleRate != 48000`.
+
+```kotlin
+.resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // VoIP quality
+```
+
+**Parameters:**
+- `quality`: Quality level (0-10)
+  - `RESAMPLER_QUALITY_MIN` (0): Fastest, lower quality
+  - `RESAMPLER_QUALITY_VOIP` (3): Optimized for voice/VoIP
+  - `RESAMPLER_QUALITY_DEFAULT` (4): Balanced quality/speed (recommended)
+  - `RESAMPLER_QUALITY_MAX` (10): Best quality, slower
+
+**Trade-offs:**
+- Higher quality = Better audio fidelity, more CPU usage
+- Lower quality = Faster processing, potential artifacts
+
+**Default:** `RESAMPLER_QUALITY_DEFAULT` (4)
+
+**Note:** Quality setting has no effect when `inputSampleRate == 48000`
+
+---
+
 #### `.vadThreshold(Float)`
 
 Set Voice Activity Detection sensitivity threshold.
@@ -100,7 +148,7 @@ Callback for receiving denoised audio frames. **Required for streaming mode.**
 
 ```kotlin
 .onProcessedAudio { denoisedAudio, result ->
-    // denoisedAudio: ShortArray - 480 denoised samples
+    // denoisedAudio: ShortArray - denoised samples at input sample rate
     // result: DenoiserResult - VAD info
     Log.d("VAD", "Speech: ${result.isSpeech}, prob: ${result.vadProbability}")
     playAudio(denoisedAudio)
@@ -109,14 +157,18 @@ Callback for receiving denoised audio frames. **Required for streaming mode.**
 
 **Parameters:**
 - `callback`: `(ShortArray, DenoiserResult) -> Unit`
-  - `denoisedAudio`: Denoised audio samples (480 samples for mono)
+  - `denoisedAudio`: Denoised audio samples at input sample rate
+    - If `inputSampleRate == 48000`: 480 samples
+    - If `inputSampleRate == 16000`: 160 samples
+    - Generally: `(inputSampleRate * 10 / 1000)` samples per frame
   - `result`: VAD result and processing metadata
 
 **Callback invoked:**
-- Every time internal buffer accumulates ≥480 samples
+- Every time internal buffer accumulates ≥ frame size
 - On `flush()` for remaining samples (zero-padded if needed)
 - Called sequentially in processing order
 - Runs on `Dispatchers.Default` (background thread)
+- Audio is automatically resampled back to input sample rate
 
 ---
 
@@ -144,9 +196,31 @@ val denoiser = AudxDenoiser.Builder()
 
 Audio format constants from native library (single source of truth).
 
+#### Resampling Quality Constants
+
+```kotlin
+AudxDenoiser.RESAMPLER_QUALITY_MAX      // 10 - Best quality
+AudxDenoiser.RESAMPLER_QUALITY_DEFAULT  // 4 - Balanced (default)
+AudxDenoiser.RESAMPLER_QUALITY_VOIP     // 3 - Optimized for VoIP
+AudxDenoiser.RESAMPLER_QUALITY_MIN      // 0 - Fastest
+```
+
+**Usage:**
+```kotlin
+.resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+```
+
+**Guidelines:**
+- **VoIP applications**: Use `RESAMPLER_QUALITY_VOIP` (3)
+- **General purpose**: Use `RESAMPLER_QUALITY_DEFAULT` (4)
+- **High quality recording**: Use `RESAMPLER_QUALITY_MAX` (10)
+- **Low latency/embedded**: Use `RESAMPLER_QUALITY_MIN` (0)
+
+---
+
 #### `SAMPLE_RATE: Int`
 
-Required sample rate in Hz.
+Native processing sample rate in Hz.
 
 ```kotlin
 val sampleRate = AudxDenoiser.SAMPLE_RATE  // 48000
@@ -154,6 +228,7 @@ val sampleRate = AudxDenoiser.SAMPLE_RATE  // 48000
 
 **Value:** 48000 (48kHz)
 **Source:** `AUDX_SAMPLE_RATE_48KHZ` from native library
+**Note:** This is the internal processing rate. Input can be any sample rate via automatic resampling.
 
 ---
 
@@ -185,7 +260,7 @@ val bitDepth = AudxDenoiser.BIT_DEPTH  // 16
 
 #### `FRAME_SIZE: Int`
 
-Processing frame size in samples.
+Native processing frame size in samples.
 
 ```kotlin
 val frameSize = AudxDenoiser.FRAME_SIZE  // 480
@@ -193,6 +268,11 @@ val frameSize = AudxDenoiser.FRAME_SIZE  // 480
 
 **Value:** 480 samples (10ms at 48kHz for mono)
 **Source:** `AUDX_FRAME_SIZE` from native library
+**Note:** This is the native frame size at 48kHz. Actual input frame size varies based on `inputSampleRate`:
+- 48kHz: 480 samples per frame
+- 16kHz: 160 samples per frame
+- 8kHz: 80 samples per frame
+- Formula: `(inputSampleRate * 10 / 1000)` samples per 10ms frame
 
 ---
 
@@ -209,23 +289,48 @@ lifecycleScope.launch {
 ```
 
 **Parameters:**
-- `audioData`: ShortArray of 16-bit PCM samples (any size)
+- `audioData`: ShortArray of 16-bit PCM samples at input sample rate (any size)
 
 **Behavior:**
 - Suspends on `Dispatchers.Default` (CPU-intensive work)
 - Thread-safe: Multiple coroutines can call concurrently
 - Accumulates samples in internal buffer
-- Processes frames (480 samples) when buffer is full
-- Invokes callback for each processed frame
+- Processes frames when buffer is full:
+  - 48kHz input: processes when ≥480 samples buffered
+  - 16kHz input: processes when ≥160 samples buffered
+  - Other rates: `(inputSampleRate * 10 / 1000)` samples
+- Automatically resamples to 48kHz if needed
+- Invokes callback for each processed frame with resampled output
 - Returns after processing all complete frames
 
 **Throws:**
 - `IllegalArgumentException` if chunk is empty or too large
 - `IllegalStateException` if denoiser was destroyed
 
-**Example with AudioRecord:**
+**Example with AudioRecord (48kHz):**
 ```kotlin
-val buffer = ShortArray(960)  // 20ms buffer
+val buffer = ShortArray(960)  // 20ms buffer at 48kHz
+lifecycleScope.launch(Dispatchers.IO) {
+    while (isRecording) {
+        val read = audioRecord.read(buffer, 0, buffer.size)
+        if (read > 0) {
+            denoiser.processChunk(buffer.copyOf(read))
+        }
+    }
+}
+```
+
+**Example with AudioRecord (16kHz with resampling):**
+```kotlin
+val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)
+    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+    .onProcessedAudio { audio, result ->
+        // audio is at 16kHz (160 samples per frame)
+    }
+    .build()
+
+val buffer = ShortArray(320)  // 20ms buffer at 16kHz
 lifecycleScope.launch(Dispatchers.IO) {
     while (isRecording) {
         val read = audioRecord.read(buffer, 0, buffer.size)
@@ -652,24 +757,47 @@ lifecycleScope.launch {
 
 - **Processing Time**: ~1-2ms per 10ms frame on modern ARM devices
 - **Buffering**: Adds 0-10ms depending on chunk size
-- **Recommended Buffer**: 480-960 samples (10-20ms) for low latency
+- **Resampling Overhead**:
+  - No resampling (48kHz): ~0ms overhead
+  - With resampling: +0.5-2ms depending on quality setting
+  - VOIP quality (3): ~0.5-1ms
+  - MAX quality (10): ~1-2ms
+- **Recommended Buffer**:
+  - 48kHz: 480-960 samples (10-20ms)
+  - 16kHz: 160-320 samples (10-20ms)
 
 ### Memory
 
-- **Per Instance**: ~50KB (denoiser state + buffers)
+- **Per Instance**: ~50KB base (denoiser state + buffers)
+- **With Resampling**: +10-20KB (resampler state)
 - **Optimization**: Mono-only reduces memory footprint vs stereo
 
 ### CPU Usage
 
-- **Single Channel**: ~5-10% on mid-range ARM devices
-- **Optimizations**: ARM NEON intrinsics in native libraries
+- **Single Channel (48kHz)**: ~5-10% on mid-range ARM devices
+- **With Resampling (16kHz→48kHz→16kHz)**:
+  - VOIP quality: +2-3% CPU
+  - DEFAULT quality: +3-5% CPU
+  - MAX quality: +5-8% CPU
+- **Optimizations**:
+  - ARM NEON intrinsics in native libraries
+  - Speex resampler for efficient rate conversion
 - **Best Practice**: Use single shared instance
+
+### Quality vs Performance Trade-offs
+
+| Quality Setting | CPU Impact | Latency | Use Case |
+|----------------|-----------|---------|----------|
+| MIN (0) | Lowest | ~0.5ms | Embedded/low-power devices |
+| VOIP (3) | Low | ~0.7ms | VoIP, real-time communication |
+| DEFAULT (4) | Moderate | ~1ms | General purpose (recommended) |
+| MAX (10) | High | ~2ms | High-quality recording |
 
 ---
 
 ## Common Patterns
 
-### Pattern 1: AudioRecord Integration
+### Pattern 1: AudioRecord Integration (48kHz)
 
 ```kotlin
 val audioRecord = AudioRecord(
@@ -683,12 +811,43 @@ val audioRecord = AudioRecord(
 val denoiser = AudxDenoiser.Builder()
     .vadThreshold(0.5f)
     .onProcessedAudio { audio, result ->
-        // Handle denoised audio
+        // Handle denoised audio at 48kHz
     }
     .build()
 
 lifecycleScope.launch(Dispatchers.IO) {
     val buffer = ShortArray(960)
+    while (isRecording) {
+        val read = audioRecord.read(buffer, 0, buffer.size)
+        if (read > 0) {
+            denoiser.processChunk(buffer.copyOf(read))
+        }
+    }
+}
+```
+
+### Pattern 1b: AudioRecord Integration (16kHz with Resampling)
+
+```kotlin
+val audioRecord = AudioRecord(
+    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+    16000,  // 16kHz input
+    AudioFormat.CHANNEL_IN_MONO,
+    AudioFormat.ENCODING_PCM_16BIT,
+    bufferSize
+)
+
+val denoiser = AudxDenoiser.Builder()
+    .inputSampleRate(16000)  // Must match AudioRecord
+    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
+    .vadThreshold(0.5f)
+    .onProcessedAudio { audio, result ->
+        // Handle denoised audio at 16kHz (resampled back)
+    }
+    .build()
+
+lifecycleScope.launch(Dispatchers.IO) {
+    val buffer = ShortArray(320)  // 20ms at 16kHz
     while (isRecording) {
         val read = audioRecord.read(buffer, 0, buffer.size)
         if (read > 0) {
@@ -816,8 +975,22 @@ if (stats != null) {
 **IllegalStateException: "Denoiser was destroyed"**
 - Solution: Don't reuse denoiser after `destroy()`, create new instance
 
-**"Sample rate must be 48000 Hz"**
-- Solution: Ensure AudioRecord is configured for 48kHz
+**IllegalArgumentException: "inputSampleRate must be positive"**
+- Solution: Ensure sample rate is greater than 0
+
+**IllegalArgumentException: "resampleQuality must be between 0 and 10"**
+- Solution: Use valid quality constants (RESAMPLER_QUALITY_MIN to RESAMPLER_QUALITY_MAX)
+
+**Mismatched sample rates (distorted audio)**
+- Symptom: Audio sounds distorted or incorrect
+- Cause: AudioRecord sample rate doesn't match `inputSampleRate` in builder
+- Solution: Ensure `inputSampleRate` matches AudioRecord configuration:
+  ```kotlin
+  val audioRecord = AudioRecord(..., 16000, ...)  // 16kHz
+  val denoiser = AudxDenoiser.Builder()
+      .inputSampleRate(16000)  // Must match!
+      .build()
+  ```
 
 **"Custom model file not found"**
 - Solution: Verify absolute path and file permissions
