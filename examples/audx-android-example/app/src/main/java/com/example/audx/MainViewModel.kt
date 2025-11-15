@@ -129,7 +129,6 @@ class MainViewModel : ViewModel() {
         denoiser = AudxDenoiser.Builder()
             .inputSampleRate(16000)
             .vadThreshold(0.5f)  // Default threshold
-            .enableVadOutput(true)  // Enable VAD in results
             .onProcessedAudio { denoisedAudio, result ->
                 // Collect denoised audio (fast operation)
                 denoisedAudioBuffer.addAll(denoisedAudio.toList())
