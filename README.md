@@ -9,7 +9,7 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 
 ## Features
 
-- ✅ Real-time audio denoising with RNNoise algorithm
+- ✅ Real-time audio denoising
 - ✅ Voice Activity Detection (VAD) with configurable threshold
 - ✅ A richer statistics API for real-time monitoring
 - ✅ Custom model support for specialized environments
@@ -42,9 +42,9 @@ denoiser.destroy()
 
 ## Requirements
 
-- **Sample Rate**: Any positive sample rate (automatically resampled to 48kHz internally)
-  - Native processing: 48kHz (48000 Hz)
-  - Common rates: 8kHz, 16kHz, 44.1kHz, 48kHz
+- **Sample Rate**: Any positive sample rate
+  - Native processing: 48kHz (48000 Hz), skip resampling, faster 
+  - Common rates: 8kHz, 16kHz, 44.1kHz
 - **Channels**: Mono only (1 channel)
 - **Audio Format**: 16-bit signed PCM
 - **Frame Size**: Varies based on input sample rate (10ms chunks)
