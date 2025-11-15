@@ -275,7 +275,7 @@ class AudxDenoiser private constructor(
          * Enable/disable VAD output in results
          * @param value Enable VAD output (default: true)
          */
-        fun setCollectStatistics(value: Boolean) = apply { this.isCollectStatistics = value }
+        fun collectStatistics(value: Boolean) = apply { this.isCollectStatistics = value }
 
         /**
          * Set input sample rate. If not 48kHz, audio will be automatically resampled

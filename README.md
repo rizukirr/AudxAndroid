@@ -11,13 +11,8 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 
 - ✅ Real-time audio denoising with RNNoise algorithm
 - ✅ Voice Activity Detection (VAD) with configurable threshold
-- ✅ **Automatic resampling** for non-48kHz audio input
-- ✅ Audio format validation with clear error messages
-- ✅ Mono audio processing optimized for performance
-- ✅ Automatic internal buffering for variable chunk sizes
 - ✅ A richer statistics API for real-time monitoring
 - ✅ Custom model support for specialized environments
-- ✅ ARM NEON & x86 SIMD optimizations
 
 ## Quick Start
 
@@ -25,6 +20,7 @@ Real-time audio denoising library for Android with Voice Activity Detection (VAD
 // 1. Create denoiser (with automatic resampling for non-48kHz audio)
 val denoiser = AudxDenoiser.Builder()
     .inputSampleRate(16000)  // Optional: Specify input rate if not 48kHz (e.g., 16kHz)
+    .collectStatistics(true) // Optional: Collect statistics (default: false)
     .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Optional: Quality level
     .vadThreshold(0.5f)
     .onProcessedAudio { audio, result ->

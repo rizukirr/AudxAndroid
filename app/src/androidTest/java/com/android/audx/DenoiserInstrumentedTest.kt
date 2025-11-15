@@ -57,7 +57,7 @@ class DenoiserInstrumentedTest {
     fun testBuilderConfiguration() {
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .build()
 
         assertNotNull("Denoiser should be created", audxDenoiser)
@@ -76,7 +76,7 @@ class DenoiserInstrumentedTest {
     @Test
     fun testBuilderVadDisabled() {
         audxDenoiser = AudxDenoiser.Builder()
-            .setCollectStatistics(false)
+            .collectStatistics(false)
             .build()
 
         assertNotNull("Denoiser with VAD disabled should be created", audxDenoiser)
@@ -212,7 +212,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, result ->
                 samplesProcessed = result.samplesProcessed
             }
@@ -548,7 +548,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -605,7 +605,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -654,7 +654,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -690,7 +690,7 @@ class DenoiserInstrumentedTest {
     fun testStats_PersistAcrossFlush() = runBlocking {
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -724,7 +724,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, result ->
                 vadScores.add(result.vadProbability)
             }
@@ -776,7 +776,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(threshold)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, result ->
                 totalFrameCount++
                 if (result.isSpeech) {
@@ -812,7 +812,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -888,7 +888,7 @@ class DenoiserInstrumentedTest {
 
         audxDenoiser = AudxDenoiser.Builder()
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
@@ -1228,7 +1228,7 @@ class DenoiserInstrumentedTest {
             .inputSampleRate(inputSampleRate)
             .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_DEFAULT)
             .vadThreshold(0.5f)
-            .setCollectStatistics(true)
+            .collectStatistics(true)
             .onProcessedAudio { _, _ -> }
             .build()
 
