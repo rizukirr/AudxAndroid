@@ -57,7 +57,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:1.0.0")
+    implementation("com.github.rizukirr:audx-android:1.1.1")
 }
 ```
 > Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.
