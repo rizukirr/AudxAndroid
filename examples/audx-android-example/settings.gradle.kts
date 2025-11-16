@@ -16,10 +16,16 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { setUrl("https://jitpack.io") }
     }
 }
 
 rootProject.name = "Audx Example"
+
+includeBuild("../..") {
+    dependencySubstitution {
+        substitute(module("com.github.rizukirr:audx-android")).using(project(":app"))
+    }
+}
+
 
 include(":app")

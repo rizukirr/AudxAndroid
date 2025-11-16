@@ -252,8 +252,6 @@ fun AudioFormatCard() {
                 InfoItem("Bit Depth", "${AudxDenoiser.BIT_DEPTH}-bit PCM")
                 InfoItem("Frame Size", "${AudioRecorder.FRAME_SIZE} samples")
             }
-
-            InfoItem("Frame Duration", "${AudxDenoiser.getFrameDurationMs()}ms")
         }
     }
 }
