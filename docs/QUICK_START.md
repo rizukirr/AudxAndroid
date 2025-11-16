@@ -1,472 +1,178 @@
-# Audio Denoiser - Quick Start Guide
+# Audx - Quick Start Guide
 
-## Requirements Checklist
+This guide provides a practical, step-by-step example of how to integrate the Audx denoising library into a modern Android application. For a complete API reference, please see the [API Reference](API.md).
 
-- **Sample Rate**: Any positive sample rate (automatically resampled to 48kHz internally)
-  - Native processing: 48kHz (48000 Hz)
-  - Common rates: 8kHz, 16kHz, 44.1kHz, 48kHz
-- **Audio Format**: 16-bit signed PCM
-- **Frame Size**: Varies based on input sample rate (10ms chunks)
-- **Channels**: Mono only (1 channel)
+## 1. Installation
 
-## Basic Usage (3 Steps)
-
-### Step 1: Create Denoiser
+First, add the JitPack repository to your project's `settings.gradle.kts` file:
 
 ```kotlin
-// Option 1: For 48kHz audio (no resampling)
-val denoiser = AudxDenoiser.Builder()
-    .vadThreshold(0.5f)          // Speech detection threshold (0.0-1.0)
-    .onProcessedAudio { audio, result ->
-        // Handle denoised audio (called every 10ms)
-        if (result.isSpeech) {
-            Log.d("VAD", "Speech: ${result.vadProbability}")
-        }
-        // Use 'audio' (denoised ShortArray at 48kHz)
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
-    .build()
-
-// Option 2: For non-48kHz audio (with automatic resampling)
-val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000)      // Input is 16kHz
-    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Quality level
-    .vadThreshold(0.5f)
-    .onProcessedAudio { audio, result ->
-        // Handle denoised audio (called every 10ms)
-        // Audio is resampled back to 16kHz
-        if (result.isSpeech) {
-            Log.d("VAD", "Speech: ${result.vadProbability}")
-        }
-    }
-    .build()
-```
-
-### Step 2: Feed Audio
-
-```kotlin
-// audioData can be any sample rate (16-bit PCM mono)
-// If inputSampleRate is specified, audio will be resampled automatically
-lifecycleScope.launch {
-    denoiser.processChunk(audioData)  // Any size, buffered internally
 }
 ```
 
-### Step 3: Cleanup
+Next, add the Audx dependency to your module's `build.gradle.kts` file:
 
 ```kotlin
-denoiser.flush()    // Process remaining buffered audio
-denoiser.destroy()  // Release resources
+dependencies {
+    implementation("com.github.rizukirr:audx-android:1.0.0")
+}
+```
+> Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.
+
+## 2. Core Concepts
+
+### Streaming Pipeline
+Audx is designed to process audio in a stream. You continuously feed it audio chunks (e.g., from an `AudioRecord` buffer), and it processes them asynchronously. The library handles all internal buffering, so you can send chunks of any size.
+
+### Threading Model
+All audio processing, including resampling and denoising, happens on a dedicated background thread. This ensures that your UI thread is never blocked. Denoised audio and statistics are delivered back to you via callbacks that execute on this same background thread.
+
+### Lifecycle
+The denoiser has a simple but strict lifecycle:
+1.  **Build**: Configure and create an instance using `AudxDenoiser.Builder`.
+2.  **Process**: Call `processAudio()` repeatedly with new audio chunks.
+3.  **Flush (Optional)**: Call `flush()` to force the processing of any buffered audio. This is useful if you need to ensure all audio up to a certain point is processed before `close()` is called.
+4.  **Close**: Call `close()` to release all native and thread resources. This method includes a final, implicit flush to ensure no audio is lost. The instance is unusable after being closed.
+
+## 3. Complete Example: Denoising in a ViewModel
+
+This example demonstrates how to manage `AudioRecord` and `AudxDenoiser` within a `ViewModel`, which is the recommended approach for handling background tasks and surviving configuration changes.
+
+### Step 1: Add Permissions
+Ensure your `AndroidManifest.xml` includes the `RECORD_AUDIO` permission:
+```xml
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
 ```
 
-## Complete Android Example
-
-### Example 1: 48kHz Audio (No Resampling)
+### Step 2: Create the ViewModel
 
 ```kotlin
-class MyActivity : AppCompatActivity() {
-    private lateinit var denoiser: AudxDenoiser
+package com.example.audx
+
+import android.annotation.SuppressLint
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.android.audx.AudxDenoiser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.io.File
+
+class DenoisingViewModel(private val outputFile: File) : ViewModel() {
+
+    companion object {
+        private const val TAG = "DenoisingViewModel"
+        private const val RECORDING_SAMPLE_RATE = 16000
+    }
+
+    private var denoiser: AudxDenoiser? = null
     private var audioRecord: AudioRecord? = null
-    private var isRecording = false
+    private var recordingJob: Job? = null
 
     @SuppressLint("MissingPermission")
-    fun startRecording() {
-        // 1. Create denoiser (48kHz, no resampling)
+    fun startDenoising() {
+        if (recordingJob?.isActive == true) return
+        Log.d(TAG, "Starting denoising process...")
+
+        // 1. Build the denoiser instance
         denoiser = AudxDenoiser.Builder()
-            .vadThreshold(0.5f)
-            .onProcessedAudio { denoisedAudio, result ->
-                // Handle 10ms of denoised audio at 48kHz
-                handleAudio(denoisedAudio, result.isSpeech)
+            .inputSampleRate(RECORDING_SAMPLE_RATE)
+            .collectStatistics(true) // Enable performance stats
+            .onProcessedAudio { result ->
+                // This callback executes on a background thread.
+                // The denoised audio is in result.audio.
+                // You can save it, play it, or stream it.
+                // Note: Be mindful of thread safety if updating UI state.
+                Log.d(TAG, "Received ${result.audio.size} denoised samples. VAD: ${result.vadProbability}")
+            }
+            .onCollectStats { stats ->
+                // This callback executes when flush() or close() is called.
+                Log.d(TAG, "Denoising stats: ${stats.speechDetectedPercent}% speech, avg time: ${stats.processTimeAvg}ms")
             }
             .build()
 
-        // 2. Create AudioRecord at 48kHz
-        val bufferSize = AudioRecord.getMinBufferSize(
-            48000,
+        // 2. Set up and start AudioRecord
+        val minBufferSize = AudioRecord.getMinBufferSize(
+            RECORDING_SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT
-        ) * 2
+        )
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            48000,
+            RECORDING_SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
+            minBufferSize * 2
         )
 
-        // 3. Start recording
-        isRecording = true
         audioRecord?.startRecording()
 
-        // 4. Process in background
-        lifecycleScope.launch(Dispatchers.IO) {
-            val buffer = ShortArray(960)  // 20ms buffer
-            while (isRecording) {
-                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                if (read > 0) {
-                    denoiser.processChunk(buffer.copyOf(read))
+        // 3. Start a background coroutine to read from the microphone
+        recordingJob = viewModelScope.launch(Dispatchers.IO) {
+            val buffer = ShortArray(RECORDING_SAMPLE_RATE / 10) // 100ms buffer
+            while (isActive) {
+                val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                if (readSize > 0) {
+                    // 4. Feed the audio chunks to the denoiser
+                    denoiser?.processAudio(buffer.copyOf(readSize))
                 }
             }
         }
     }
 
-    fun stopRecording() {
-        isRecording = false
-        lifecycleScope.launch {
-            denoiser.flush()
-            delay(50)
-            audioRecord?.stop()
-            audioRecord?.release()
-            denoiser.destroy()
-        }
+    fun stopDenoising() {
+        if (recordingJob == null) return
+        Log.d(TAG, "Stopping denoising process...")
+
+        // Stop the recording coroutine
+        recordingJob?.cancel()
+        recordingJob = null
+
+        // Stop AudioRecord
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+
+        // 5. Close the denoiser to release resources.
+        // This will automatically flush any remaining audio and trigger the onCollectStats callback.
+        denoiser?.close()
+        denoiser = null
     }
 
-    private fun handleAudio(audio: ShortArray, isSpeech: Boolean) {
-        // Your audio processing here
-        // audio is 48kHz 16-bit PCM, denoised
-    }
-}
-```
-
-### Example 2: 16kHz Audio (With Automatic Resampling)
-
-```kotlin
-class MyActivity : AppCompatActivity() {
-    private lateinit var denoiser: AudxDenoiser
-    private var audioRecord: AudioRecord? = null
-    private var isRecording = false
-
-    @SuppressLint("MissingPermission")
-    fun startRecording() {
-        // 1. Create denoiser with resampling for 16kHz input
-        denoiser = AudxDenoiser.Builder()
-            .inputSampleRate(16000)  // Specify input is 16kHz
-            .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // VoIP quality
-            .vadThreshold(0.5f)
-            .onProcessedAudio { denoisedAudio, result ->
-                // Handle 10ms of denoised audio at 16kHz (resampled back)
-                handleAudio(denoisedAudio, result.isSpeech)
-            }
-            .build()
-
-        // 2. Create AudioRecord at 16kHz
-        val bufferSize = AudioRecord.getMinBufferSize(
-            16000,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        ) * 2
-
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            16000,  // 16kHz input
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
-        )
-
-        // 3. Start recording
-        isRecording = true
-        audioRecord?.startRecording()
-
-        // 4. Process in background
-        lifecycleScope.launch(Dispatchers.IO) {
-            val buffer = ShortArray(320)  // 20ms buffer at 16kHz
-            while (isRecording) {
-                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                if (read > 0) {
-                    // Audio is automatically resampled to 48kHz for processing,
-                    // then resampled back to 16kHz in the callback
-                    denoiser.processChunk(buffer.copyOf(read))
-                }
-            }
-        }
-    }
-
-    fun stopRecording() {
-        isRecording = false
-        lifecycleScope.launch {
-            denoiser.flush()
-            delay(50)
-            audioRecord?.stop()
-            audioRecord?.release()
-            denoiser.destroy()
-        }
-    }
-
-    private fun handleAudio(audio: ShortArray, isSpeech: Boolean) {
-        // Your audio processing here
-        // audio is 16kHz 16-bit PCM, denoised
+    override fun onCleared() {
+        // Ensure cleanup happens if the ViewModel is destroyed
+        stopDenoising()
+        super.onCleared()
     }
 }
 ```
 
-## Key Constants
+## 4. API Highlights
 
-```kotlin
-// Audio format constants
-AudxDenoiser.SAMPLE_RATE          // 48000 Hz (native processing rate)
-AudxDenoiser.CHANNELS             // 1 (mono only)
-AudxDenoiser.BIT_DEPTH            // 16 (16-bit PCM)
-AudxDenoiser.FRAME_SIZE           // 480 samples (at 48kHz)
-AudxDenoiser.getFrameDurationMs() // 10ms
-AudxDenoiser.getRecommendedBufferSize(10)  // Buffer size in bytes for 10ms
+The `AudxDenoiser.Builder` allows you to configure the denoiser. Key methods include:
 
-// Resampling quality constants
-AudxDenoiser.RESAMPLER_QUALITY_MAX      // 10 - Best quality
-AudxDenoiser.RESAMPLER_QUALITY_DEFAULT  // 4 - Balanced (default)
-AudxDenoiser.RESAMPLER_QUALITY_VOIP     // 3 - Optimized for VoIP
-AudxDenoiser.RESAMPLER_QUALITY_MIN      // 0 - Fastest
-```
+- `.inputSampleRate(Int)`: **Crucial.** Must match the sample rate of your audio source.
+- `.onProcessedAudio(callback)`: **Required.** Receives the denoised audio.
+- `.collectStatistics(Boolean)`: Enables performance stat collection.
+- `.onCollectStats(callback)`: **Required if `collectStatistics(true)`.** Receives the final statistics report.
+- `.resampleQuality(Int)`: Adjusts the trade-off between resampler speed and quality.
 
-## Configuration Options
+Once built, the main `AudxDenoiser` instance has a few key methods:
 
-### Input Sample Rate
+- `processAudio(ShortArray)`: The main method for sending audio to the denoiser.
+- `flush()`: A blocking call to process any remaining audio in the buffer.
+- `close()`: A blocking call to release all resources.
 
-```kotlin
-.inputSampleRate(16000)  // Default: 48000 (no resampling)
-// Automatically resamples to 48kHz for processing, then back to original rate
-// Common values: 8000, 16000, 44100, 48000
-```
-
-### Resampling Quality
-
-```kotlin
-.resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Default: RESAMPLER_QUALITY_DEFAULT
-// RESAMPLER_QUALITY_MIN (0) = fastest, lower quality
-// RESAMPLER_QUALITY_VOIP (3) = optimized for voice
-// RESAMPLER_QUALITY_DEFAULT (4) = balanced
-// RESAMPLER_QUALITY_MAX (10) = best quality, slower
-```
-
-### VAD Threshold
-
-```kotlin
-.vadThreshold(0.5f)  // Default: 0.5
-// 0.0 = very sensitive (detects whispers)
-// 0.5 = balanced (normal speech)
-// 1.0 = strict (only loud speech)
-```
-
-### Custom Model
-
-```kotlin
-.modelPreset(AudxDenoiser.ModelPreset.CUSTOM)
-.modelPath("/path/to/custom.rnnn")
-```
-
-### Disable VAD
-
-```kotlin
-.enableVadOutput(false)  // Skips VAD calculation
-```
-
-## AudioRecord Setup
-
-### For 48kHz (No Resampling)
-
-```kotlin
-val audioRecord = AudioRecord(
-    MediaRecorder.AudioSource.VOICE_RECOGNITION,  // Best for speech
-    48000,                                         // 48kHz
-    AudioFormat.CHANNEL_IN_MONO,                   // Mono only
-    AudioFormat.ENCODING_PCM_16BIT,                // Must be 16-bit
-    bufferSize
-)
-```
-
-### For 16kHz (With Resampling)
-
-```kotlin
-val audioRecord = AudioRecord(
-    MediaRecorder.AudioSource.VOICE_RECOGNITION,  // Best for speech
-    16000,                                         // 16kHz input
-    AudioFormat.CHANNEL_IN_MONO,                   // Mono only
-    AudioFormat.ENCODING_PCM_16BIT,                // Must be 16-bit
-    bufferSize
-)
-
-// Configure denoiser with matching input rate
-val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000)  // Must match AudioRecord sample rate
-    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)
-    .build()
-```
-
-## Processing Flow
-
-### Without Resampling (48kHz)
-
-```
-AudioRecord (48kHz PCM)
-    ↓
-processChunk(ShortArray)
-    ↓
-[Internal buffering to 480-sample frames]
-    ↓
-Audio Processing (48kHz)
-    ↓
-onProcessedAudio callback
-    ↓
-Denoised audio + VAD result (48kHz)
-```
-
-### With Resampling (e.g., 16kHz)
-
-```
-AudioRecord (16kHz PCM)
-    ↓
-processChunk(ShortArray)
-    ↓
-[Internal buffering to 160-sample frames at 16kHz]
-    ↓
-Resample to 48kHz (480 samples)
-    ↓
-Audio Processing (48kHz)
-    ↓
-Resample back to 16kHz (160 samples)
-    ↓
-onProcessedAudio callback
-    ↓
-Denoised audio + VAD result (16kHz)
-```
-
-## Example Files
-
-- [Full Example Application](https://github.com/rizukirr/audx-android/tree/main/examples/audx_example) - Complete Android app demonstrating real-time audio denoising with AudioRecord integration
-
-## Common Mistakes
-
-### ❌ Mismatched sample rates
-
-```kotlin
-// AudioRecord is 16kHz
-AudioRecord(..., 16000, ...)
-
-// But denoiser is configured for 48kHz (default)
-val denoiser = AudxDenoiser.Builder()
-    // Missing .inputSampleRate(16000)
-    .build()
-
-// WRONG! Sample rates must match
-```
-
-✅ **Correct:**
-
-```kotlin
-// AudioRecord is 16kHz
-AudioRecord(..., 16000, ...)
-
-// Denoiser configured with matching input rate
-val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000)  // Must match AudioRecord
-    .build()
-```
-
-### ❌ Not using coroutines for processChunk
-
-```kotlin
-denoiser.processChunk(audio)  // WRONG! Missing suspend context
-```
-
-✅ **Correct:**
-
-```kotlin
-lifecycleScope.launch {
-    denoiser.processChunk(audio)
-}
-```
-
-### ❌ Forgetting to flush
-
-```kotlin
-denoiser.destroy()  // WRONG! May lose buffered audio
-```
-
-✅ **Correct:**
-
-```kotlin
-denoiser.flush()
-delay(50)
-denoiser.destroy()
-```
-
-### ❌ Using wrong buffer type
-
-```kotlin
-val buffer = ByteArray(1024)  // WRONG! Denoiser needs ShortArray
-```
-
-✅ **Correct:**
-
-```kotlin
-val buffer = ShortArray(480)  // ShortArray for 16-bit PCM
-```
-
-## Testing
-
-### Check if sample rate is supported
-
-```kotlin
-// Check if 48kHz is supported
-val bufferSize48k = AudioRecord.getMinBufferSize(
-    48000,
-    AudioFormat.CHANNEL_IN_MONO,
-    AudioFormat.ENCODING_PCM_16BIT
-)
-if (bufferSize48k == AudioRecord.ERROR_BAD_VALUE) {
-    Log.e(TAG, "48kHz not supported on this device!")
-    // Use lower sample rate with resampling
-}
-
-// Check if 16kHz is supported
-val bufferSize16k = AudioRecord.getMinBufferSize(
-    16000,
-    AudioFormat.CHANNEL_IN_MONO,
-    AudioFormat.ENCODING_PCM_16BIT
-)
-if (bufferSize16k == AudioRecord.ERROR_BAD_VALUE) {
-    Log.e(TAG, "16kHz not supported on this device!")
-}
-```
-
-### Monitor VAD
-
-```kotlin
-.onProcessedAudio { audio, result ->
-    Log.d("VAD", "Probability: ${result.vadProbability}, " +
-                 "Speech: ${result.isSpeech}")
-}
-```
-
-### Save to file for testing
-
-```kotlin
-val file = File(context.cacheDir, "denoised.pcm")
-val fos = FileOutputStream(file)
-denoiser.onProcessedAudio { audio, _ ->
-    val buffer = ByteBuffer.allocate(audio.size * 2)
-    buffer.order(ByteOrder.LITTLE_ENDIAN)
-    audio.forEach { buffer.putShort(it) }
-    fos.write(buffer.array())
-}
-// Convert to WAV: ffmpeg -f s16le -ar 48000 -ac 1 -i denoised.pcm denoised.wav
-```
-
-## Additional Resources
-
-- **Frame size explanation**: 480 samples = 10ms at 48kHz
-- **VAD**: Voice Activity Detection (0.0 = silence, 1.0 = speech)
-
-## Troubleshooting
-
-| Issue                | Solution                                                        |
-| -------------------- | --------------------------------------------------------------- |
-| No callback firing   | Check you're using `lifecycleScope.launch` for `processChunk()` |
-| Distorted audio      | Verify 48kHz sample rate, check buffer isn't being modified     |
-| High latency         | Use smaller read buffers (480-960 samples)                      |
-| Memory leak          | Always call `destroy()` when done                               |
-| "State check failed" | Denoiser was already destroyed, don't reuse                     |
-
----
-
-**Ready to start?** Check out the [full example application](https://github.com/rizukirr/audx-android/tree/main/examples/audx_example) to see it in action! 🚀
+For a full list of methods and constants, see the **[API Reference](API.md)**.

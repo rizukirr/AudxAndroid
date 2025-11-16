@@ -33,11 +33,11 @@ class AudioPlayer {
     /**
      * Initialize AudioTrack with AudxDenoiser constants
      */
-    fun initialize(audioData: ShortArray): Result<Unit> {
+    fun initialize(sampleRate: Int, audioData: ShortArray): Result<Unit> {
         return try {
             // Get the minimum buffer size required by the system
             val minBufferSize = AudioTrack.getMinBufferSize(
-                AudioRecorder.SAMPLE_RATE,
+                sampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
             )
@@ -47,7 +47,7 @@ class AudioPlayer {
             }
 
             Log.i(TAG, "Initializing AudioTrack with:")
-            Log.i(TAG, "  Sample Rate: ${AudioRecorder.SAMPLE_RATE} Hz")
+            Log.i(TAG, "  Sample Rate: $sampleRate Hz")
             Log.i(TAG, "  Channels: ${AudxDenoiser.CHANNELS} (Mono)")
             Log.i(TAG, "  Bit Depth: ${AudxDenoiser.BIT_DEPTH}-bit PCM")
             Log.i(TAG, "  Min Buffer Size: $minBufferSize bytes")
@@ -59,7 +59,7 @@ class AudioPlayer {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build(),
                 AudioFormat.Builder()
-                    .setSampleRate(AudioRecorder.SAMPLE_RATE)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build(),

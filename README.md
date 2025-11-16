@@ -1,67 +1,47 @@
-# Audx - Android Realtime Audio Denoising Library
+# Audx - Android Real-time Audio Denoising Library
 
 [![](https://jitpack.io/v/rizukirr/audx-android.svg)](https://jitpack.io/#rizukirr/audx-android)
-[![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/rizukirr/audx-android/releases)
-[![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
-[![API](https://img.shields.io/badge/API-24%2B-brightgreen.svg)](https://android-arsenal.com/api?level=24)
 
-Real-time audio denoising library for Android with Voice Activity Detection (VAD). Wraps [audx-realtime](https://github.com/rizukirr/audx-realtime) native library with a clean Kotlin/Java API.
+A streaming, real-time audio denoising library for Android with Voice Activity Detection (VAD). It wraps a native C++ library ([audx-realtime](https://github.com/rizukirr/audx-realtime)) with a clean, easy-to-use Kotlin API.
 
 ## Features
 
-- ✅ Real-time audio denoising
-- ✅ Voice Activity Detection (VAD) with configurable threshold
-- ✅ A richer statistics API for real-time monitoring
-- ✅ Custom model support for specialized environments
+- **Real-time Noise Suppression**: Based on the excellent [Xiph.Org RNNoise](https://github.com/xiph/rnnoise) algorithm.
+- **Streaming API**: Process audio in chunks of any size. The library handles all internal buffering.
+- **Support for Any Sample Rate**: Automatically resamples from any standard input rate (e.g., 8kHz, 16kHz, 44.1kHz) to the required 48kHz and back.
+- **Voice Activity Detection (VAD)**: Each processed chunk includes a probability score for speech presence.
+- **Performance Statistics**: Collect detailed metrics on CPU usage and speech activity.
+- **Fluent Builder API**: A simple, chainable builder for easy configuration.
+- **Lightweight & Performant**: Efficient C++ core with no external dependencies outside of the Android NDK.
 
-## Quick Start
+## Getting Started
+
+For a detailed guide on integrating Audx with `AudioRecord` in a modern Android app, please see the **[Quick Start Guide](docs/QUICK_START.md)**.
+
+Here is a minimal example:
 
 ```kotlin
-// 1. Create denoiser (with automatic resampling for non-48kHz audio)
+// 1. Build the denoiser instance
 val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000)  // Optional: Specify input rate if not 48kHz (e.g., 16kHz)
-    .collectStatistics(true) // Optional: Collect statistics (default: false)
-    .resampleQuality(AudxDenoiser.RESAMPLER_QUALITY_VOIP)  // Optional: Quality level
-    .vadThreshold(0.5f)
-    .onProcessedAudio { audio, result ->
-        // Handle denoised audio + VAD result
-        // Audio is resampled back to original input rate (16kHz in this example)
-        Log.d("VAD", "Speech: ${result.isSpeech}, prob: ${result.vadProbability}")
+    .inputSampleRate(16000) // Match your source's sample rate
+    .onProcessedAudio { result ->
+        // This callback runs on a background thread.
+        // 'result.audio' contains the denoised audio.
+        Log.d("Audx", "VAD Probability: ${result.vadProbability}")
     }
     .build()
 
-// 2. Feed audio (any sample rate, 16-bit PCM mono)
-lifecycleScope.launch {
-    denoiser.processChunk(audioData)  // Input at 16kHz, automatically resampled
-}
+// 2. Process audio chunks as they arrive (e.g., from AudioRecord)
+denoiser.processAudio(myAudioChunk)
 
-// 3. Cleanup
-denoiser.flush()
-denoiser.destroy()
+// 3. At the end of the stream, close the denoiser to release resources.
+// This is a blocking call that performs a final flush before cleaning up.
+denoiser.close()
 ```
-
-## Requirements
-
-- **Sample Rate**: Any positive sample rate
-  - Native processing: 48kHz (48000 Hz), skip resampling, faster 
-  - Common rates: 8kHz, 16kHz, 44.1kHz
-- **Channels**: Mono only (1 channel)
-- **Audio Format**: 16-bit signed PCM
-- **Frame Size**: Varies based on input sample rate (10ms chunks)
-- **Min SDK**: 24 (Android 7.0)
-
-All constants available from native library: `AudxDenoiser.SAMPLE_RATE`, `AudxDenoiser.CHANNELS`, `AudxDenoiser.BIT_DEPTH`, `AudxDenoiser.FRAME_SIZE`
-
-### Resampling Quality Constants
-
-- `AudxDenoiser.RESAMPLER_QUALITY_MAX` (10) - Best quality
-- `AudxDenoiser.RESAMPLER_QUALITY_DEFAULT` (4) - Balanced (default)
-- `AudxDenoiser.RESAMPLER_QUALITY_VOIP` (3) - Optimized for VoIP
-- `AudxDenoiser.RESAMPLER_QUALITY_MIN` (0) - Fastest
 
 ## Installation
 
-Add JitPack repository to `settings.gradle.kts`:
+1.  Add the JitPack repository to your project's `settings.gradle.kts` file:
 
 ```kotlin
 dependencyResolutionManagement {
@@ -73,35 +53,31 @@ dependencyResolutionManagement {
 }
 ```
 
-Add dependency in `build.gradle.kts`:
+2.  Add the dependency to your module's `build.gradle.kts` file:
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:1.1.0")
+    implementation("com.github.rizukirr:audx-android:1.0.0")
 }
 ```
-
-> **Latest version**: Check [Releases](https://github.com/rizukirr/audx-android/releases)
+> Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.
 
 ## Documentation
 
-- 📖 **[API Reference](docs/API.md)** - Complete API documentation
-- 🚀 **[Quick Start Guide](docs/QUICK_START.md)** - Step-by-step tutorial with examples
-- 💡 **[Examples](examples/)** - Real-world usage examples
+- **[Quick Start Guide](docs/QUICK_START.md)**: A detailed, step-by-step integration guide.
+- **[API Reference](docs/API.md)**: A complete reference for all classes, methods, and constants.
+
+## Requirements
+
+- **Min SDK**: 24 (Android 7.0)
+- **Audio Format**: 16-bit signed PCM, Mono.
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
-
-## Credits
-
-Built with [audx-realtime](https://github.com/rizukirr/audx-realtime) - Audio denoising library based on [Xiph.Org RNNoise](https://github.com/xiph/rnnoise).
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ---
 
-💖 **Support This Project**
+**Support This Project**
 
-If you find this project helpful, consider supporting its development:  
-☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
-
-Made with ❤️ by [rizukirr](https://github.com/rizukirr)
+If you find this project helpful, consider ☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
