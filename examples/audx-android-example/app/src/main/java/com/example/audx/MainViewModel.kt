@@ -95,20 +95,24 @@ class MainViewModel : ViewModel() {
         denoiser = AudxDenoiser.Builder()
             .inputSampleRate(currentSampleRate) // Use the centralized sample rate
             .vadThreshold(0.5f)
-            .onProcessedAudio { denoisedAudio, result ->
+            .onProcessedAudio { result ->
+                val (denoisedAudio, vadProbability, isSpeech) = result
+
                 denoisedAudioBuffer.addAll(denoisedAudio.toList())
                 frameCount++
+
+                // Update UI every 10 frames (100ms) to avoid performance issues
                 if (frameCount % 10 == 0) {
                     _state.update {
                         it.copy(
-                            vadProbability = result.vadProbability,
-                            isSpeechDetected = result.isSpeech
+                            vadProbability = vadProbability,
+                            isSpeechDetected = isSpeech
                         )
                     }
                     updateDenoisedBuffer()
                 }
             }
-            .build() // Correctly build the denoiser instance
+            .build()
     }
 
     fun stopRecording() {
@@ -117,6 +121,8 @@ class MainViewModel : ViewModel() {
             recordingJob = null
             audioRecorder.release()
 
+            // Flush any remaining audio from the denoiser's internal buffers
+            denoiser?.flush()
             denoiser?.close()
             denoiser = null
 
