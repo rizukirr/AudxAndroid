@@ -54,8 +54,9 @@ struct DenoiserConfig {
   /**
    * Enable or disable statistics collection.
    *
-   * If true, the Denoiser and DenoiserResult structs will include valid VAD scores,
-   * speech flags and other statistics. If false, statistics are not computed.
+   * If true, the Denoiser and DenoiserResult structs will include valid VAD
+   * scores, speech flags and other statistics. If false, statistics are not
+   * computed.
    */
   bool stats_enabled;
 };
@@ -297,6 +298,20 @@ const char *get_denoiser_error(struct Denoiser *denoiser);
  * @see DenoiserStats
  */
 int get_denoiser_stats(struct Denoiser *denoiser, struct DenoiserStats *stats);
+
+/**
+ * @brief Reset denoiser statistics to initial state.
+ *
+ * Clears all accumulated statistics in the provided @ref DenoiserStats
+ * structure, allowing for fresh data collection from that point onward.
+ *
+ * @param stats Pointer to a DenoiserStats struct to be reset.
+ *
+ * @return
+ * - AUDX_SUCCESS (0) on success
+ * - AUDX_ERROR_INVALID (-1) if @p stats is NULL
+ */
+int get_denoiser_stats_reset(struct DenoiserStats *stats);
 
 /**
  * @brief Get RNNoiser version

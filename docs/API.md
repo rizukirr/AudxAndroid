@@ -12,6 +12,8 @@ This document provides a complete API reference for the Audx Android audio denoi
   - [AudxDenoiser.Builder](#audxdenoiserbuilder)
   - [AudxDenoiser (Instance)](#audxdenoiser-instance)
   - [DenoiseStreamResult](#denoisestreamresult)
+  - [DenoiserStatsResult](#denoiserstatsresult)
+  - [Type Aliases](#type-aliases)
   - [Companion Object Constants](#companion-object-constants)
 
 ---
@@ -26,6 +28,7 @@ This document provides a complete API reference for the Audx Android audio denoi
 - **Asynchronous Processing**: All audio processing happens on a background thread. Denoised audio is delivered back to you via a callback.
 - **Arbitrary Sample Rates**: The denoiser can accept any standard sample rate (e.g., 8000, 16000, 44100 Hz). It automatically resamples the audio to the required 48 kHz for processing and then resamples it back to the original input rate.
 - **VAD (Voice Activity Detection)**: For each processed chunk, the denoiser provides a VAD score indicating the probability of speech.
+- **Performance Statistics**: The denoiser can collect detailed performance metrics, suchs as processing time and speech detection percentages.
 
 ### Lifecycle
 
@@ -33,18 +36,18 @@ The denoiser has a clear lifecycle that must be followed to ensure all audio is 
 
 1.  **Build**: Create an instance using `AudxDenoiser.Builder`.
 2.  **Process**: Call `processAudio()` repeatedly with incoming audio chunks.
-3.  **Flush**: At the end of the stream, call `flush()` to process any audio remaining in the internal buffer. This is a crucial step to avoid losing the last fraction of a second of audio.
-4.  **Close**: Call `close()` to stop the worker thread and release all native resources. The instance cannot be used after this.
+3.  **Flush (Optional)**: Call `flush()` to explicitly process any audio remaining in the internal buffer and trigger the `onCollectStats` callback (if enabled). This is useful for getting intermediate results or statistics without closing the denoiser.
+4.  **Close**: Call `close()` to stop the worker thread and release all native resources. `close()` implicitly performs a final flush to ensure all buffered audio is processed before termination. The instance cannot be used after this.
 
 ```
-[Create with Builder] -> [processAudio()] -> [processAudio()] -> ... -> [flush()] -> [close()]
+[Create with Builder] -> [processAudio()] -> [processAudio()] -> ... -> [flush() (optional)] -> [close()]
 ```
 
 ---
 
 ## Example Usage
 
-Here is a complete example of integrating `AudxDenoiser` with `AudioRecord` in a ViewModel.
+Here is a complete example of integrating `AudxDenoiser` with `AudioRecord` and collecting statistics.
 
 ```kotlin
 class MyViewModel : ViewModel() {
@@ -56,11 +59,15 @@ class MyViewModel : ViewModel() {
         // 1. Build the denoiser
         denoiser = AudxDenoiser.Builder()
             .inputSampleRate(16000) // The sample rate of our source
+            .collectStatistics(true) // Enable statistics collection
             .onProcessedAudio { result ->
                 // This callback is on a background thread
-                // result contains the denoised audio and VAD stats
                 denoisedAudioBuffer.addAll(result.audio.toList())
                 Log.d("VAD", "Speech probability: ${result.vadProbability}")
+            }
+            .onCollectStats { stats ->
+                // This callback is on a background thread, typically after flush() or close()
+                Log.d("STATS", "Average processing time: ${stats.processTimeAvg} ms")
             }
             .build()
 
@@ -82,7 +89,7 @@ class MyViewModel : ViewModel() {
         recordingJob?.cancel()
         recordingJob = null
 
-        // 3. Flush the remaining audio
+        // 3. Flush the remaining audio and receive final stats (optional, close() will also flush)
         denoiser?.flush()
 
         // 4. Close the denoiser to release resources
@@ -104,15 +111,15 @@ Use the builder to configure and create an `AudxDenoiser` instance.
 
 | Method                    | Description                                                                                             | Default Value      |
 | ------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------ |
-| `.inputSampleRate(Int)`   | The sample rate of your source audio (e.g., 16000).                                                     | `48000`            |
-| `.resampleQuality(Int)`   | Sets the quality level for audio resampling. Use constants like `AudxDenoiser.RESAMPLER_QUALITY_VOIP`.  | `4`                |
-| `.vadThreshold(Float)`    | VAD sensitivity (0.0-1.0). Higher is stricter.                                                          | `0.5`              |
-| `.collectStatistics(Boolean)` | Enables VAD statistics. Must be `true` to get VAD results.                                       | `true`             |
-| `.modelPreset(ModelPreset)` | Selects the built-in model (`EMBEDDED`) or a custom one.                                            | `EMBEDDED`         |
-| `.modelPath(String?)`     | The file path to a custom `.rnnn` model file.                                                           | `null`             |
-| `.workerThreadName(String)` | A custom name for the internal processing thread.                                                     | `"audx-worker"`    |
 | `.onProcessedAudio(callback)` | **Required.** Sets the callback for receiving `DenoiseStreamResult` objects.                      | `null`             |
-| `.build()`                | Constructs the `AudxDenoiser` instance.                                                                 | -                  |
+| `.inputSampleRate(Int)`   | The sample rate of your source audio (e.g., 16000).                                                     | `48000`            |
+| `.vadThreshold(Float)`    | VAD sensitivity (0.0-1.0). Higher is stricter.                                                          | `0.5`              |
+| `.collectStatistics(Boolean)` | Enables collection of performance and VAD statistics.                                                 | `false`            |
+| `.onCollectStats(callback)` | **Required if `collectStatistics(true)`.** Sets the callback for receiving `DenoiserStatsResult`. Invoked when `flush()` or `close()` is called. | `null`             |
+| `.resampleQuality(Int)`   | Sets the quality for audio resampling (0-10). Use constants like `AudxDenoiser.RESAMPLER_QUALITY_VOIP`.  | `4`                |
+| `.modelPath(String?)`     | The absolute file path to a custom `.rnnn` model file.                                                  | `null`             |
+| `.workerThreadName(String)` | A custom name for the internal processing thread.                                                     | `"audx-worker"`    |
+| `.build()`                | Constructs the `AudxDenoiser` instance. Throws `IllegalArgumentException` if callback is missing.       | -                  |
 
 ### AudxDenoiser (Instance)
 
@@ -121,19 +128,45 @@ The public methods available on an `AudxDenoiser` instance.
 | Method                        | Description                                                                                             | Thread Safety |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------- | ------------- |
 | `processAudio(ShortArray)`    | Asynchronously submits an audio chunk for processing. Non-blocking.                                     | Thread-safe   |
-| `flush()`                     | Synchronously processes any remaining audio in the buffer. Blocks until complete.                       | Thread-safe   |
-| `close()`                     | Flushes remaining audio and releases all resources. Blocks until complete. The instance is unusable after this. | Thread-safe   |
+| `flush()`                     | Synchronously processes any remaining audio in the buffer. Blocks until complete. Invokes `onCollectStats` callback if enabled, then automatically resets statistics. | Thread-safe   |
+| `close()`                     | Flushes remaining audio, releases all resources, and stops the worker thread. Blocks until complete. The instance is unusable after this. | Thread-safe   |
+| `cleanStats()`                | Synchronously resets all collected statistics to zero. Blocks until complete. Note: `flush()` and `close()` automatically reset statistics after invoking the callback, so manual use is rarely needed. | Thread-safe   |
 | `setCallback(callback)`       | Updates the `onProcessedAudio` callback at runtime.                                                     | Thread-safe   |
+| `setStatsCallback(callback)`  | Updates the `onCollectStats` callback at runtime.                                                       | Thread-safe   |
 
 ### DenoiseStreamResult
 
-This data class is the container for the output of the denoiser.
+This data class is the container for the output of the denoiser for each processed chunk.
 
 | Property           | Type        | Description                                                              |
 | ------------------ | ----------- | ------------------------------------------------------------------------ |
 | `audio`            | `ShortArray`| The chunk of denoised audio samples.                                     |
 | `vadProbability`   | `Float`     | The VAD probability (0.0 to 1.0) of the last 10ms frame in this chunk.   |
 | `isSpeech`         | `Boolean`   | `true` if `vadProbability` is above the configured `vadThreshold`.         |
+
+### DenoiserStatsResult
+
+This data class holds runtime performance metrics for the denoiser instance.
+
+| Property                | Type    | Description                                                              |
+| ----------------------- | ------- | ------------------------------------------------------------------------ |
+| `frameProcessed`        | `Int`   | The total number of 10ms frames processed.                               |
+| `speechDetectedPercent` | `Float` | The percentage of processed frames where speech was detected.            |
+| `vadScoreAvg`           | `Float` | The average VAD score across all processed frames.                       |
+| `vadScoreMin`           | `Float` | The minimum VAD score observed.                                          |
+| `vadScoreMax`           | `Float` | The maximum VAD score observed.                                          |
+| `processTimeTotal`      | `Float` | The total CPU time in milliseconds spent on denoising.                   |
+| `processTimeAvg`        | `Float` | The average processing time in milliseconds per frame.                   |
+| `processTimeLast`       | `Float` | The processing time in milliseconds of the most recent frame.            |
+
+### Type Aliases
+
+The library defines type aliases for its callback functions.
+
+| Alias                    | Signature                               | Description                               |
+| ------------------------ | --------------------------------------- | ----------------------------------------- |
+| `ProcessedAudioCallback` | `(DenoiseStreamResult) -> Unit`         | For receiving denoised audio chunks.      |
+| `GetStatsCallback`       | `(DenoiserStatsResult) -> Unit`         | For receiving performance statistics.     |
 
 ### Companion Object Constants
 

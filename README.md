@@ -10,40 +10,32 @@ A streaming, real-time audio denoising library for Android with Voice Activity D
 - **Streaming API**: Process audio in chunks of any size. The library handles all internal buffering.
 - **Support for Any Sample Rate**: Automatically resamples from any standard input rate (e.g., 8kHz, 16kHz, 44.1kHz) to the required 48kHz and back.
 - **Voice Activity Detection (VAD)**: Each processed chunk includes a probability score for speech presence.
+- **Performance Statistics**: Collect detailed metrics on CPU usage and speech activity.
 - **Fluent Builder API**: A simple, chainable builder for easy configuration.
 - **Lightweight & Performant**: Efficient C++ core with no external dependencies outside of the Android NDK.
 
-## Quick Start
+## Getting Started
 
-The library uses a simple `build` -> `process` -> `flush` -> `close` lifecycle.
+For a detailed guide on integrating Audx with `AudioRecord` in a modern Android app, please see the **[Quick Start Guide](docs/QUICK_START.md)**.
+
+Here is a minimal example:
 
 ```kotlin
 // 1. Build the denoiser instance
 val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000) // Set the sample rate of your source audio
+    .inputSampleRate(16000) // Match your source's sample rate
     .onProcessedAudio { result ->
         // This callback runs on a background thread.
-        // 'result' contains the denoised audio and VAD statistics.
-        val cleanAudio: ShortArray = result.audio
-        val speechProbability: Float = result.vadProbability
-
-        Log.d("Audx", "Received ${cleanAudio.size} denoised samples.")
-        Log.d("Audx", "Speech probability: $speechProbability")
-
-        // You can now play, save, or stream the cleanAudio
+        // 'result.audio' contains the denoised audio.
+        Log.d("Audx", "VAD Probability: ${result.vadProbability}")
     }
     .build()
 
 // 2. Process audio chunks as they arrive (e.g., from AudioRecord)
-// This is non-blocking and can be called from any thread.
 denoiser.processAudio(myAudioChunk)
-denoiser.processAudio(anotherAudioChunk)
 
-// 3. At the end of the stream, flush the internal buffers
-// This is a blocking call to ensure all audio is processed.
-denoiser.flush()
-
-// 4. Close the denoiser to release native resources
+// 3. At the end of the stream, close the denoiser to release resources.
+// This is a blocking call that performs a final flush before cleaning up.
 denoiser.close()
 ```
 
@@ -65,14 +57,15 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:1.1.0")
+    implementation("com.github.rizukirr:audx-android:1.0.0")
 }
 ```
 > Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.
 
-## API Documentation
+## Documentation
 
-For a complete guide to all classes, methods, and constants, please see the **[API Reference](docs/API.md)**.
+- **[Quick Start Guide](docs/QUICK_START.md)**: A detailed, step-by-step integration guide.
+- **[API Reference](docs/API.md)**: A complete reference for all classes, methods, and constants.
 
 ## Requirements
 

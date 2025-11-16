@@ -51,13 +51,11 @@ class MainViewModel : ViewModel() {
                 when (mode) {
                     RecordingMode.RAW -> {
                         rawAudioBuffer.clear()
-                        Log.i(TAG, "Starting RAW recording")
                     }
                     RecordingMode.DENOISED -> {
                         denoisedAudioBuffer.clear()
                         frameCount = 0
                         initializeDenoiser()
-                        Log.i(TAG, "Starting DENOISED recording with AudxDenoiser")
                     }
                 }
 
@@ -93,8 +91,12 @@ class MainViewModel : ViewModel() {
 
     private fun initializeDenoiser() {
         denoiser = AudxDenoiser.Builder()
+            .collectStatistics(true)
             .inputSampleRate(currentSampleRate) // Use the centralized sample rate
             .vadThreshold(0.5f)
+            .onCollectStats { stats ->
+                Log.d(TAG, "initializeDenoiser: $stats")
+            }
             .onProcessedAudio { result ->
                 val (denoisedAudio, vadProbability, isSpeech) = result
 
@@ -121,9 +123,7 @@ class MainViewModel : ViewModel() {
             recordingJob = null
             audioRecorder.release()
 
-            // Flush any remaining audio from the denoiser's internal buffers
-            denoiser?.flush()
-            denoiser?.close()
+            denoiser?.close() // Already include flush and clear statistics
             denoiser = null
 
             _state.update {
@@ -160,15 +160,12 @@ class MainViewModel : ViewModel() {
                 }
 
                 _state.update { it.copy(recordingState = RecordingState.Playing(mode)) }
-                Log.i(TAG, "Playing ${mode.name} audio (${audioData.size} samples) at $currentSampleRate Hz")
 
                 audioPlayer?.play(audioData)
 
                 _state.update { it.copy(recordingState = RecordingState.Idle) }
                 audioPlayer?.release()
                 audioPlayer = null
-                Log.i(TAG, "Playback completed")
-
             } catch (e: Exception) {
                 Log.e(TAG, "Playback error", e)
                 _state.update {
@@ -188,7 +185,6 @@ class MainViewModel : ViewModel() {
         audioPlayer?.release()
         audioPlayer = null
         _state.update { it.copy(recordingState = RecordingState.Idle) }
-        Log.i(TAG, "Playback stopped")
     }
 
     fun clearBuffers() {
@@ -203,7 +199,6 @@ class MainViewModel : ViewModel() {
                 error = null
             )
         }
-        Log.i(TAG, "All buffers cleared")
     }
 
     fun clearError() {
@@ -223,6 +218,5 @@ class MainViewModel : ViewModel() {
         stopRecording()
         stopPlayback()
         audioRecorder.release()
-        Log.i(TAG, "ViewModel cleared")
     }
 }

@@ -43,11 +43,45 @@ data class DenoiseStreamResult(
 }
 
 /**
+ * Holds runtime statistics and performance metrics of the denoiser
+ *
+ * This structure is filled by getStats() and provides
+ * Information about the number of frames processed, speech activity
+ * detection (VAD) results and processing performance
+ *
+ * @property frameProcessed The total number of frames processed by the denoiser
+ * @property speechDetectedPercent The percentage of frames that detected speech
+ * @property vadScoreAvg The average VAD score across all frames
+ * @property vadScoreMin The minimum VAD score across all frames
+ * @property vadScoreMax The maximum VAD score across all frames
+ * @property processTimeTotal The total processing time in milliseconds
+ * @property processTimeAvg The average processing time in milliseconds
+ * @property processTimeLast The processing time of the last frame in milliseconds
+ */
+data class DenoiserStatsResult(
+    val frameProcessed: Int,
+    val speechDetectedPercent: Float,
+    val vadScoreAvg: Float,
+    val vadScoreMin: Float,
+    val vadScoreMax: Float,
+    val processTimeTotal: Float,
+    val processTimeAvg: Float,
+    val processTimeLast: Float
+)
+
+/**
  * Defines the callback function for receiving processed audio results.
  *
  * @param result The [DenoiseStreamResult] containing the denoised audio and VAD statistics.
  */
 typealias ProcessedAudioCallback = (result: DenoiseStreamResult) -> Unit
+
+/**
+ * Defines the callback function for receiving denoiser statistics.
+ *
+ * @param result The [DenoiserStatsResult] containing the denoiser statistics.
+ */
+typealias GetStatsCallback = (result: DenoiserStatsResult) -> Unit
 
 /**
  * A real-time, streaming audio denoiser for Android.
@@ -85,7 +119,6 @@ class AudxDenoiser private constructor(
         init {
             try {
                 System.loadLibrary("audx")
-                Log.i(TAG, "Native audx library loaded")
             } catch (e: UnsatisfiedLinkError) {
                 Log.e(TAG, "Failed to load native audx library", e)
             }
@@ -93,36 +126,49 @@ class AudxDenoiser private constructor(
 
         /** The default sample rate expected by the underlying denoiser model (48000 Hz). */
         val SAMPLE_RATE: Int get() = getSampleRateNative()
+
         /** The number of audio channels supported (1 for mono). */
         val CHANNELS: Int get() = getChannelsNative()
+
         /** The audio bit depth supported (16-bit). */
         val BIT_DEPTH: Int get() = getBitDepthNative()
+
         /** The internal frame size of the denoiser model in samples (480 samples for 10ms at 48kHz). */
         val FRAME_SIZE: Int get() = getFrameSizeNative()
 
         /** Maximum allowed resampler quality level (10). Higher quality increases CPU usage. */
         val RESAMPLER_QUALITY_MAX: Int get() = getResamplerQualityMaxNative()
+
         /** Minimum allowed resampler quality level (0). Fastest but lowest audio accuracy. */
         val RESAMPLER_QUALITY_MIN: Int get() = getResamplerQualityMinNative()
+
         /** Default resampler quality level (4). Balanced between performance and quality. */
         val RESAMPLER_QUALITY_DEFAULT: Int get() = getResamplerQualityDefaultNative()
+
         /** Recommended resampler quality for VoIP or low-latency scenarios (3). */
         val RESAMPLER_QUALITY_VOIP: Int get() = getResamplerQualityVoipNative()
 
         @JvmStatic
         private external fun getSampleRateNative(): Int
+
         @JvmStatic
         private external fun getChannelsNative(): Int
+
         @JvmStatic
         private external fun getBitDepthNative(): Int
+
         @JvmStatic
         private external fun getFrameSizeNative(): Int
+
         @JvmStatic
         private external fun getResamplerQualityMaxNative(): Int
+
         @JvmStatic
         private external fun getResamplerQualityMinNative(): Int
+
         @JvmStatic
         private external fun getResamplerQualityDefaultNative(): Int
+
         @JvmStatic
         private external fun getResamplerQualityVoipNative(): Int
     }
@@ -141,6 +187,9 @@ class AudxDenoiser private constructor(
     private var processedAudioCallback: ProcessedAudioCallback? = null
 
     @Volatile
+    private var statsCallback: GetStatsCallback? = null
+
+    @Volatile
     private var closed = false
 
     /**
@@ -149,32 +198,49 @@ class AudxDenoiser private constructor(
     class Builder {
         private var modelPath: String? = null
         private var vadThreshold: Float = 0.5f
-        private var collectStatistics: Boolean = true
+        private var collectStatistics: Boolean = false
         private var inputSampleRate: Int = 48000
         private var resampleQuality: Int = 4
         private var workerThreadName: String = "audx-worker"
         private var callback: ProcessedAudioCallback? = null
+        private var statsCallback: GetStatsCallback? = null
+
 
         /** Sets the path to a custom model. more info: `https://github.com/rizukirr/audx-realtime` */
         fun modelPath(path: String?) = apply { this.modelPath = path }
+
         /** Sets the Voice Activity Detection (VAD) threshold (0.0 to 1.0). Default is 0.5. */
         fun vadThreshold(value: Float) = apply { this.vadThreshold = value }
+
         /** Enables or disables the collection of VAD statistics. Default is true. */
         fun collectStatistics(value: Boolean) = apply { this.collectStatistics = value }
+
         /** Sets the sample rate of the input audio. The denoiser will automatically resample if this is not 48000. */
         fun inputSampleRate(value: Int) = apply { this.inputSampleRate = value }
+
         /** Sets the quality of the internal resampler (0-10). Higher is better quality but more CPU intensive. Default is 4. */
         fun resampleQuality(value: Int) = apply { this.resampleQuality = value }
+
         /** Sets the name of the internal worker thread. */
         fun workerThreadName(name: String) = apply { this.workerThreadName = name }
-        /** Sets the callback to be invoked when a chunk of audio has been processed. */
+
+        /** Sets the callback to be invoked when a chunk of audio has been processed. This is required. */
         fun onProcessedAudio(cb: ProcessedAudioCallback) = apply { this.callback = cb }
+
+        /** Sets the callback to be invoked when statistics are collected. */
+        fun onCollectStats(cb: GetStatsCallback) = apply { this.statsCallback = cb }
 
         /**
          * Creates and initializes the [AudxDenoiser] instance with the configured settings.
+         * @throws IllegalArgumentException if the onProcessedAudio callback is not set.
+         * @throws IllegalArgumentException if collectStatistics is enabled but onCollectStats callback is not set.
          * @throws IllegalStateException if the native library fails to initialize.
          */
         fun build(): AudxDenoiser {
+            require(callback != null) { "onProcessedAudio callback must be set." }
+            require(!collectStatistics || statsCallback != null) {
+                "onCollectStats callback must be set when collectStatistics is enabled."
+            }
             val denoiser = AudxDenoiser(
                 modelPath = modelPath,
                 vadThreshold = vadThreshold,
@@ -183,7 +249,10 @@ class AudxDenoiser private constructor(
                 resampleQuality = resampleQuality,
                 workerThreadName = workerThreadName
             )
-            if (callback != null) denoiser.setCallback(callback!!)
+            denoiser.setCallback(callback!!)
+            if (statsCallback != null) {
+                denoiser.setStatsCallback(statsCallback!!)
+            }
             return denoiser
         }
     }
@@ -232,13 +301,31 @@ class AudxDenoiser private constructor(
     }
 
     /**
+     * Sets or updates the callback for receiving denoiser statistics.
+     * This method is thread-safe.
+     */
+    fun setStatsCallback(cb: GetStatsCallback) {
+        statsCallback = cb
+    }
+
+    /**
      * Submits a chunk of audio for asynchronous processing.
      * This method is thread-safe and non-blocking. The audio chunk can be of any size.
      *
      * @param input A [ShortArray] containing the raw 16-bit PCM audio data.
+     * @throws IllegalStateException if the denoiser has been closed.
+     */
+    /**
+     * Submits a chunk of audio for asynchronous processing.
+     * This method is thread-safe and non-blocking. The audio chunk can be of any size.
+     *
+     * @param input A [ShortArray] containing the raw 16-bit PCM audio data.
+     * @throws IllegalStateException if the denoiser has been closed.
      */
     fun processAudio(input: ShortArray) {
-        if (closed) return
+        if (closed) throw IllegalStateException("Denoiser is closed and cannot be used.")
+        if (input.isEmpty()) return
+
         workerHandler.post {
             if (closed) return@post
             try {
@@ -276,6 +363,12 @@ class AudxDenoiser private constructor(
                         processedAudioCallback?.invoke(it)
                     }
                 }
+
+                if(collectStatistics){
+                    val stats = getStatsNative(nativeHandle)
+                    stats?.let { statsCallback?.invoke(it) }
+                    cleanStatsNative(nativeHandle)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during native flush", e)
             } finally {
@@ -298,11 +391,26 @@ class AudxDenoiser private constructor(
         val latch = CountDownLatch(1)
         workerHandler.post {
             try {
-                flush()
+                // Inlined flush to prevent deadlock and ensure final data is processed.
+                val result = flushNative(nativeHandle)
+                result?.let {
+                    if (it.audio.isNotEmpty()) {
+                        processedAudioCallback?.invoke(it)
+                    }
+                }
+
+                if(collectStatistics){
+                    val stats = getStatsNative(nativeHandle)
+                    stats?.let { statsCallback?.invoke(it) }
+                    cleanStatsNative(nativeHandle)
+                }
+
                 if (nativeHandle != 0L) {
                     destroyNative(nativeHandle)
                     nativeHandle = 0L
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during native final flush/destroy in close()", e)
             } finally {
                 latch.countDown()
             }
@@ -317,6 +425,36 @@ class AudxDenoiser private constructor(
         cleaner.clean()
     }
 
+    /**
+     * Resets all collected runtime statistics for the denoiser instance.
+     *
+     * This function sets all statistics fields (e.g., frames_processed, total_vad_score,
+     * min/max scores, processing times) back to their initial, zeroed-out state.
+     * This is a synchronous, blocking call that waits for the reset operation to complete
+     * on the worker thread.
+     *
+     * @throws IllegalStateException if the denoiser has been closed.
+     */
+    fun cleanStats() {
+        if (closed) throw IllegalStateException("Denoiser is closed and cannot be used.")
+        val latch = CountDownLatch(1)
+
+        workerHandler.post {
+            if (closed) {
+                latch.countDown()
+                return@post
+            }
+            try {
+                cleanStatsNative(nativeHandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during native cleanStats", e)
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await()
+    }
+
     // --- JNI Bindings ---
 
     private external fun createNative(
@@ -329,4 +467,8 @@ class AudxDenoiser private constructor(
     private external fun flushNative(handle: Long): DenoiseStreamResult?
 
     private external fun destroyNative(handle: Long)
+
+    private external fun getStatsNative(handle: Long): DenoiserStatsResult?
+
+    private external fun cleanStatsNative(handle: Long)
 }
