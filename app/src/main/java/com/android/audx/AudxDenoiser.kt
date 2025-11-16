@@ -342,6 +342,40 @@ class AudxDenoiser private constructor(
     }
 
     /**
+     * Submits a chunk of audio for asynchronous processing using a DirectByteBuffer (zero-copy API).
+     * This method is thread-safe and non-blocking. The buffer can contain any amount of audio data.
+     *
+     * **Performance Advantage**: Unlike [processAudio], this method uses a DirectByteBuffer which
+     * allows the native layer to access memory directly without copying, resulting in better
+     * performance for large audio chunks or high-throughput scenarios.
+     *
+     * @param buffer A direct [java.nio.ByteBuffer] containing raw 16-bit PCM audio data in little-endian format.
+     *               The buffer must be a **direct** ByteBuffer (allocated via [java.nio.ByteBuffer.allocateDirect]).
+     *               The buffer's position will be advanced by the number of bytes processed.
+     * @throws IllegalStateException if the denoiser has been closed.
+     * @throws IllegalArgumentException if the buffer is not a direct ByteBuffer.
+     */
+    fun processAudio(buffer: java.nio.ByteBuffer) {
+        if (closed) throw IllegalStateException("Denoiser is closed and cannot be used.")
+        require(buffer.isDirect) { "Buffer must be a direct ByteBuffer for zero-copy processing." }
+        if (!buffer.hasRemaining()) return
+
+        workerHandler.post {
+            if (closed) return@post
+            try {
+                val result = processNativeByteBuffer(nativeHandle, buffer)
+                result?.let {
+                    if (it.audio.isNotEmpty()) {
+                        processedAudioCallback?.invoke(it)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during native ByteBuffer processing", e)
+            }
+        }
+    }
+
+    /**
      * Flushes any remaining audio from the internal native buffers.
      *
      * This method should be called at the end of an audio stream to ensure that all
@@ -463,6 +497,8 @@ class AudxDenoiser private constructor(
     ): Long
 
     private external fun processNative(handle: Long, input: ShortArray): DenoiseStreamResult?
+
+    private external fun processNativeByteBuffer(handle: Long, buffer: java.nio.ByteBuffer): DenoiseStreamResult?
 
     private external fun flushNative(handle: Long): DenoiseStreamResult?
 

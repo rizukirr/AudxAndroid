@@ -24,25 +24,48 @@ extern "C" {
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 /**
+ * @struct JNICachedRefs
+ * @brief Holds cached JNI class and method references to eliminate repeated lookups.
+ */
+struct JNICachedRefs {
+    /// Cached global reference to DenoiseStreamResult class
+    jclass DenoiseStreamResultClass;
+    /// Cached method ID for DenoiseStreamResult constructor
+    jmethodID DenoiseStreamResultConstructor;
+    /// Cached global reference to DenoiserStatsResult class
+    jclass DenoiserStatsResultClass;
+    /// Cached method ID for DenoiserStatsResult constructor
+    jmethodID DenoiserStatsResultConstructor;
+};
+
+/**
  * @struct ResamplerContext
  * @brief Holds the state and configuration for the entire streaming and resampling pipeline.
  */
 struct ResamplerContext {
     /// Flag indicating if resampling is necessary.
-    bool needs_resampling;
+    bool needs_resampling{};
     /// The number of samples at `input_rate` required to produce one full frame for the denoiser.
-    int input_frame_samples;
+    int input_frame_samples{};
     /// The fixed number of samples required by the denoiser (e.g., 480).
-    int output_frame_samples;
+    int output_frame_samples{};
     /// A stateful upsampler instance (input_rate -> output_rate).
-    AudxResampler upsampler;
+    AudxResampler upsampler{};
     /// A stateful downsampler instance (output_rate -> input_rate).
-    AudxResampler downsampler;
+    AudxResampler downsampler{};
 
     /// Buffer to accumulate incoming audio chunks from JNI calls.
     std::vector<int16_t> input_buffer;
     /// Buffer to accumulate processed audio chunks before returning to JNI.
     std::vector<int16_t> output_buffer;
+
+    // Pre-allocated resampling buffers (Improvement #1: eliminates malloc/free from hot path)
+    /// Pre-allocated buffer for upsampled audio (48kHz intermediate).
+    std::vector<int16_t> upsampled_buffer;
+    /// Pre-allocated buffer for denoised audio at 48kHz.
+    std::vector<int16_t> denoised_buffer;
+    /// Pre-allocated buffer for downsampled audio (back to input rate).
+    std::vector<int16_t> downsampled_buffer;
 
     /// The VAD probability from the last processed 10ms frame.
     float last_vad_prob = 0.0f;
@@ -59,6 +82,8 @@ struct NativeHandle {
     Denoiser *denoiser;
     /// Pointer to the context holding resamplers and streaming buffers.
     ResamplerContext *resampler_ctx;
+    /// Pointer to cached JNI references (Improvement #2: eliminates repeated JNI lookups)
+    JNICachedRefs *jni_cache;
 };
 
 // Forward declarations for internal helpers
@@ -126,16 +151,79 @@ Java_com_android_audx_AudxDenoiser_createNative(
             // Handle error
             return 0;
         }
+
+        // Pre-allocate resampling buffers to eliminate malloc/free from hot path
+        resampler_ctx->upsampled_buffer.resize(resampler_ctx->output_frame_samples);
+        resampler_ctx->denoised_buffer.resize(resampler_ctx->output_frame_samples);
+        // Downsampled buffer needs extra space as resampler may produce slightly more samples
+        resampler_ctx->downsampled_buffer.resize(resampler_ctx->input_frame_samples * 2);
     } else {
         resampler_ctx->input_frame_samples = AUDX_DEFAULT_FRAME_SIZE;
         resampler_ctx->upsampler = nullptr;
         resampler_ctx->downsampler = nullptr;
+        // Pre-allocate buffer for non-resampling path
+        resampler_ctx->denoised_buffer.resize(AUDX_DEFAULT_FRAME_SIZE);
     }
 
     resampler_ctx->input_buffer.reserve(resampler_ctx->input_frame_samples * 2);
     resampler_ctx->output_buffer.reserve(resampler_ctx->input_frame_samples * 2);
 
-    auto *handle = new NativeHandle{denoiser, resampler_ctx};
+    // Cache JNI class and method references (Improvement #2: eliminates repeated lookups)
+    auto *jni_cache = new JNICachedRefs();
+
+    // Cache DenoiseStreamResult class and constructor
+    jclass localResultClass = env->FindClass("com/android/audx/DenoiseStreamResult");
+    if (localResultClass == nullptr) {
+        LOGE("Cannot find DenoiseStreamResult class");
+        delete jni_cache;
+        delete resampler_ctx;
+        denoiser_destroy(denoiser);
+        delete denoiser;
+        return 0;
+    }
+    jni_cache->DenoiseStreamResultClass = (jclass) env->NewGlobalRef(localResultClass);
+    jni_cache->DenoiseStreamResultConstructor = env->GetMethodID(
+            jni_cache->DenoiseStreamResultClass, "<init>", "([SFZ)V");
+    env->DeleteLocalRef(localResultClass);
+
+    if (jni_cache->DenoiseStreamResultConstructor == nullptr) {
+        LOGE("Cannot find DenoiseStreamResult constructor");
+        env->DeleteGlobalRef(jni_cache->DenoiseStreamResultClass);
+        delete jni_cache;
+        delete resampler_ctx;
+        denoiser_destroy(denoiser);
+        delete denoiser;
+        return 0;
+    }
+
+    // Cache DenoiserStatsResult class and constructor
+    jclass localStatsClass = env->FindClass("com/android/audx/DenoiserStatsResult");
+    if (localStatsClass == nullptr) {
+        LOGE("Cannot find DenoiserStatsResult class");
+        env->DeleteGlobalRef(jni_cache->DenoiseStreamResultClass);
+        delete jni_cache;
+        delete resampler_ctx;
+        denoiser_destroy(denoiser);
+        delete denoiser;
+        return 0;
+    }
+    jni_cache->DenoiserStatsResultClass = (jclass) env->NewGlobalRef(localStatsClass);
+    jni_cache->DenoiserStatsResultConstructor = env->GetMethodID(
+            jni_cache->DenoiserStatsResultClass, "<init>", "(IFFFFFFF)V");
+    env->DeleteLocalRef(localStatsClass);
+
+    if (jni_cache->DenoiserStatsResultConstructor == nullptr) {
+        LOGE("Cannot find DenoiserStatsResult constructor");
+        env->DeleteGlobalRef(jni_cache->DenoiseStreamResultClass);
+        env->DeleteGlobalRef(jni_cache->DenoiserStatsResultClass);
+        delete jni_cache;
+        delete resampler_ctx;
+        denoiser_destroy(denoiser);
+        delete denoiser;
+        return 0;
+    }
+
+    auto *handle = new NativeHandle{denoiser, resampler_ctx, jni_cache};
     return reinterpret_cast<jlong>(handle);
 }
 
@@ -154,6 +242,16 @@ Java_com_android_audx_AudxDenoiser_destroyNative(JNIEnv *env, jobject, jlong han
         audx_resample_destroy(native_handle->resampler_ctx->upsampler);
         audx_resample_destroy(native_handle->resampler_ctx->downsampler);
         delete native_handle->resampler_ctx;
+    }
+    // Clean up cached JNI global references
+    if (native_handle->jni_cache) {
+        if (native_handle->jni_cache->DenoiseStreamResultClass) {
+            env->DeleteGlobalRef(native_handle->jni_cache->DenoiseStreamResultClass);
+        }
+        if (native_handle->jni_cache->DenoiserStatsResultClass) {
+            env->DeleteGlobalRef(native_handle->jni_cache->DenoiserStatsResultClass);
+        }
+        delete native_handle->jni_cache;
     }
     delete native_handle;
     LOGI("Denoiser and resampler destroyed");
@@ -188,6 +286,69 @@ Java_com_android_audx_AudxDenoiser_processNative(JNIEnv *env, jobject, jlong han
     audx_process_stream(native_handle);
 
     // 3. Package the results and return to Kotlin.
+    return create_jni_result(env, native_handle);
+}
+
+/**
+ * @brief JNI entry point for processing audio from a DirectByteBuffer (zero-copy API).
+ *
+ * This function provides a zero-copy path for audio processing by directly accessing
+ * the memory of a DirectByteBuffer without intermediate allocations. This is optimal
+ * for high-throughput scenarios and integration with native audio libraries like Oboe.
+ *
+ * @param handle The native handle pointer.
+ * @param byteBuffer A direct ByteBuffer containing 16-bit PCM audio data in little-endian format.
+ * @return A DenoiseStreamResult object containing the processed audio and VAD stats.
+ */
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_android_audx_AudxDenoiser_processNativeByteBuffer(JNIEnv *env, jobject, jlong handle,
+                                                           jobject byteBuffer) {
+    auto *native_handle = reinterpret_cast<NativeHandle *>(handle);
+    if (!native_handle || !native_handle->resampler_ctx) return nullptr;
+
+    // Get direct access to the ByteBuffer's memory (zero-copy!)
+    void *buffer_ptr = env->GetDirectBufferAddress(byteBuffer);
+    if (buffer_ptr == nullptr) {
+        LOGE("Buffer is not a direct ByteBuffer or GetDirectBufferAddress failed");
+        return nullptr;
+    }
+
+    jlong buffer_capacity = env->GetDirectBufferCapacity(byteBuffer);
+    if (buffer_capacity == -1) {
+        LOGE("Failed to get buffer capacity");
+        return nullptr;
+    }
+
+    // Get buffer position and limit to determine how much data to process
+    jclass byteBufferClass = env->GetObjectClass(byteBuffer);
+    jmethodID positionMethod = env->GetMethodID(byteBufferClass, "position", "()I");
+    jmethodID limitMethod = env->GetMethodID(byteBufferClass, "limit", "()I");
+    jmethodID positionSetMethod = env->GetMethodID(byteBufferClass, "position", "(I)Ljava/nio/Buffer;");
+
+    jint position = env->CallIntMethod(byteBuffer, positionMethod);
+    jint limit = env->CallIntMethod(byteBuffer, limitMethod);
+    jint remaining_bytes = limit - position;
+
+    if (remaining_bytes <= 0) {
+        return create_jni_result(env, native_handle); // Return empty result
+    }
+
+    // Convert bytes to samples (16-bit = 2 bytes per sample)
+    jint num_samples = remaining_bytes / 2;
+    auto *sample_ptr = static_cast<int16_t *>(buffer_ptr) + position / 2;
+
+    // 1. Feed audio into the internal input buffer (same as processNative)
+    native_handle->resampler_ctx->input_buffer.insert(
+            native_handle->resampler_ctx->input_buffer.end(),
+            sample_ptr, sample_ptr + num_samples);
+
+    // 2. Process all available full frames from the input buffer.
+    audx_process_stream(native_handle);
+
+    // 3. Update buffer position to mark data as consumed
+    env->CallObjectMethod(byteBuffer, positionSetMethod, limit);
+
+    // 4. Package the results and return to Kotlin.
     return create_jni_result(env, native_handle);
 }
 
@@ -243,43 +404,40 @@ int audx_process_stream(NativeHandle *handle) {
         DenoiserResult frame_result{};
 
         if (ctx->needs_resampling) {
-            // Resampling Path
-            std::vector<int16_t> upsampled_buffer(ctx->output_frame_samples);
-            std::vector<int16_t> denoised_buffer(ctx->output_frame_samples);
-
+            // Resampling Path (using pre-allocated buffers - zero allocations!)
             // 2. Upsample to the denoiser's required sample rate (e.g., 48kHz).
             audx_uint32_t in_len = input_frame.size();
-            audx_uint32_t out_len = upsampled_buffer.size();
+            audx_uint32_t out_len = ctx->upsampled_buffer.size();
             audx_resample_process(ctx->upsampler, input_frame.data(), &in_len,
-                                  upsampled_buffer.data(), &out_len);
-            upsampled_buffer.resize(out_len);
+                                  ctx->upsampled_buffer.data(), &out_len);
 
             // The resampler might not produce exactly the required number of samples on every call.
             // Pad with silence if necessary to meet the denoiser's strict frame size requirement.
-            if (upsampled_buffer.size() < ctx->output_frame_samples) {
-                upsampled_buffer.resize(ctx->output_frame_samples, 0);
+            if (out_len < ctx->output_frame_samples) {
+                // Fill remaining samples with silence
+                std::fill(ctx->upsampled_buffer.begin() + out_len,
+                         ctx->upsampled_buffer.begin() + ctx->output_frame_samples, 0);
+                out_len = ctx->output_frame_samples;
             }
 
             // 3. Denoise the 48kHz frame.
-            denoiser_process(denoiser, upsampled_buffer.data(), denoised_buffer.data(),
+            denoiser_process(denoiser, ctx->upsampled_buffer.data(), ctx->denoised_buffer.data(),
                              &frame_result);
 
             // 4. Downsample the clean audio back to the original input rate.
-            in_len = denoised_buffer.size();
-            out_len = ctx->input_frame_samples * 2; // Provide a larger buffer to be safe.
-            std::vector<int16_t> downsampled_buffer(out_len);
-            audx_resample_process(ctx->downsampler, denoised_buffer.data(), &in_len,
-                                  downsampled_buffer.data(), &out_len);
+            in_len = ctx->output_frame_samples;
+            out_len = ctx->downsampled_buffer.size();
+            audx_resample_process(ctx->downsampler, ctx->denoised_buffer.data(), &in_len,
+                                  ctx->downsampled_buffer.data(), &out_len);
 
             // 5. Append the result to the main output buffer.
-            ctx->output_buffer.insert(ctx->output_buffer.end(), downsampled_buffer.begin(),
-                                      downsampled_buffer.begin() + out_len);
+            ctx->output_buffer.insert(ctx->output_buffer.end(), ctx->downsampled_buffer.begin(),
+                                      ctx->downsampled_buffer.begin() + out_len);
         } else {
-            // Non-resampling path (input is already at 48kHz).
-            std::vector<int16_t> denoised_buffer(ctx->input_frame_samples);
-            denoiser_process(denoiser, input_frame.data(), denoised_buffer.data(), &frame_result);
-            ctx->output_buffer.insert(ctx->output_buffer.end(), denoised_buffer.begin(),
-                                      denoised_buffer.end());
+            // Non-resampling path (input is already at 48kHz, using pre-allocated buffer).
+            denoiser_process(denoiser, input_frame.data(), ctx->denoised_buffer.data(), &frame_result);
+            ctx->output_buffer.insert(ctx->output_buffer.end(), ctx->denoised_buffer.begin(),
+                                      ctx->denoised_buffer.begin() + ctx->input_frame_samples);
         }
 
         // Store the VAD result of this frame, overwriting the previous one.
@@ -293,9 +451,8 @@ int audx_process_stream(NativeHandle *handle) {
 /**
  * @brief Creates a Java DenoiseStreamResult object from the native context.
  *
- * This helper function handles the JNI boilerplate for finding the Kotlin class
- * and its constructor, creating the Java short array for the audio, and constructing
- * the final result object.
+ * This helper function uses cached JNI references to construct the result object,
+ * eliminating expensive FindClass and GetMethodID lookups from the hot path.
  *
  * @param env The JNI environment pointer.
  * @param handle The native handle.
@@ -310,22 +467,16 @@ jobject create_jni_result(JNIEnv *env, NativeHandle *handle) {
     env->SetShortArrayRegion(audioArray, 0, ctx->output_buffer.size(), ctx->output_buffer.data());
     ctx->output_buffer.clear(); // Clear the buffer for the next call.
 
-    // Find the DenoiseStreamResult class and its constructor.
-    jclass resultClass = env->FindClass("com/android/audx/DenoiseStreamResult");
-    if (resultClass == nullptr) {
-        LOGE("Cannot find DenoiseStreamResult class");
-        return nullptr;
-    }
-    // Constructor signature: ([SFZ)V -> (short[], float, boolean) -> void
-    jmethodID ctor = env->GetMethodID(resultClass, "<init>", "([SFZ)V");
-    if (ctor == nullptr) {
-        LOGE("Cannot find DenoiseStreamResult constructor");
+    // Use cached JNI references (zero lookups in hot path!)
+    JNICachedRefs *cache = handle->jni_cache;
+    if (!cache || !cache->DenoiseStreamResultClass || !cache->DenoiseStreamResultConstructor) {
+        LOGE("JNI cache is invalid");
         return nullptr;
     }
 
-    // Create and return the result object.
-    return env->NewObject(resultClass, ctor, audioArray, ctx->last_vad_prob,
-                          (jboolean) ctx->is_speech);
+    // Create and return the result object using cached references.
+    return env->NewObject(cache->DenoiseStreamResultClass, cache->DenoiseStreamResultConstructor,
+                          audioArray, ctx->last_vad_prob, (jboolean) ctx->is_speech);
 }
 
 /**
@@ -333,7 +484,7 @@ jobject create_jni_result(JNIEnv *env, NativeHandle *handle) {
  *
  * Populates the provided @ref DenoiserStats structure with metrics
  * about processed frames, VAD (Voice Activity Detection) scores, and
- * performance timing information.
+ * performance timing information. Uses cached JNI references for performance.
  *
  * @param env The JNI environment pointer.
  * @param handle The native handle containing Denoiser context.
@@ -353,20 +504,15 @@ Java_com_android_audx_AudxDenoiser_getStatsNative(JNIEnv *env, jobject /*this*/,
         return nullptr;
     }
 
-    // Find the DenoiseStreamResult class and its constructor.
-    jclass resultClass = env->FindClass("com/android/audx/DenoiserStatsResult");
-    if (resultClass == nullptr) {
-        LOGE("Cannot find DenoiseStreamResult class");
-        return nullptr;
-    }
-    // Constructor signature: ([SFZ)V -> (short[], float, boolean) -> void
-    jmethodID ctor = env->GetMethodID(resultClass, "<init>", "(IFFFFFFF)V");
-    if (ctor == nullptr) {
-        LOGE("Cannot find DenoiseStreamResult constructor");
+    // Use cached JNI references (eliminates FindClass/GetMethodID overhead)
+    JNICachedRefs *cache = native_handle->jni_cache;
+    if (!cache || !cache->DenoiserStatsResultClass || !cache->DenoiserStatsResultConstructor) {
+        LOGE("JNI cache is invalid for stats");
         return nullptr;
     }
 
-    return env->NewObject(resultClass, ctor, stats.frame_processed, stats.speech_detected,
+    return env->NewObject(cache->DenoiserStatsResultClass, cache->DenoiserStatsResultConstructor,
+                          stats.frame_processed, stats.speech_detected,
                           stats.vscores_avg, stats.vscores_min, stats.vscores_max,
                           stats.ptime_total, stats.ptime_avg, stats.ptime_last);
 }
