@@ -13,6 +13,16 @@ A streaming, real-time audio denoising library for Android with Voice Activity D
 - **Performance Statistics**: Collect detailed metrics on CPU usage and speech activity.
 - **Fluent Builder API**: A simple, chainable builder for easy configuration.
 - **Lightweight & Performant**: Efficient C++ core with no external dependencies outside of the Android NDK.
+- **Zero-Copy API**: A new `processAudio(ByteBuffer)` API for high-throughput scenarios, offering true zero-copy processing when used with a `DirectByteBuffer`.
+
+## Performance
+
+Version `1.1.2` introduces significant performance improvements, including pre-allocated memory buffers and cached JNI lookups, resulting in:
+- ~25-35% faster processing per frame.
+- ~20-25% lower CPU usage.
+- Zero memory allocations on the audio processing hot path.
+
+For high-performance use cases, the new **zero-copy API** is recommended. See the [Quick Start Guide](docs/QUICK_START.md#5-advanced-zero-copy-processing-with-bytebuffer) for an integration example.
 
 ## Getting Started
 
@@ -57,7 +67,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:1.1.1")
+    implementation("com.github.rizukirr:audx-android:1.1.2")
 }
 ```
 > Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.

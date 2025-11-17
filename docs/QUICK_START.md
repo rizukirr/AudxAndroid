@@ -175,4 +175,116 @@ Once built, the main `AudxDenoiser` instance has a few key methods:
 - `flush()`: A blocking call to process any remaining audio in the buffer.
 - `close()`: A blocking call to release all resources.
 
+## 5. Advanced: Zero-Copy Processing with ByteBuffer
+
+For high-performance applications, especially those using native audio libraries like Oboe, the `processAudio(ByteBuffer)` overload offers the best performance. It allows the native layer to access audio data directly without any memory copies.
+
+### Key Requirements
+- **Direct ByteBuffer**: The buffer **must** be allocated using `java.nio.ByteBuffer.allocateDirect()`.
+- **Little-Endian**: The buffer's byte order must be set to `java.nio.ByteOrder.LITTLE_ENDIAN`.
+
+### Example: Zero-Copy with AudioRecord
+
+This example adapts the previous `ViewModel` to use the zero-copy API. The main difference is in how the `AudioRecord` buffer is handled.
+
+```kotlin
+package com.example.audx
+
+import android.annotation.SuppressLint
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.android.audx.AudxDenoiser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+class ZeroCopyViewModel : ViewModel() {
+
+    companion object {
+        private const val TAG = "ZeroCopyViewModel"
+        // For best performance, use the native sample rate to avoid resampling
+        private const val RECORDING_SAMPLE_RATE = 48000
+    }
+
+    private var denoiser: AudxDenoiser? = null
+    private var audioRecord: AudioRecord? = null
+    private var recordingJob: Job? = null
+
+    @SuppressLint("MissingPermission")
+    fun startDenoising() {
+        if (recordingJob?.isActive == true) return
+        Log.d(TAG, "Starting zero-copy denoising...")
+
+        denoiser = AudxDenoiser.Builder()
+            .inputSampleRate(RECORDING_SAMPLE_RATE) // Match the source rate
+            .onProcessedAudio { result ->
+                Log.d(TAG, "Received ${result.audio.size} denoised samples. VAD: ${result.vadProbability}")
+            }
+            .build()
+
+        val minBufferSize = AudioRecord.getMinBufferSize(
+            RECORDING_SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            RECORDING_SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            minBufferSize * 2
+        )
+
+        audioRecord?.startRecording()
+
+        recordingJob = viewModelScope.launch(Dispatchers.IO) {
+            // Allocate a direct buffer for zero-copy processing
+            val buffer = ByteBuffer.allocateDirect(minBufferSize)
+            buffer.order(ByteOrder.LITTLE_ENDIAN)
+
+            while (isActive) {
+                // Read directly into the ByteBuffer
+                val bytesRead = audioRecord?.read(buffer, buffer.capacity()) ?: 0
+                if (bytesRead > 0) {
+                    // The buffer is ready to be read from.
+                    // The denoiser will read from the buffer's current position.
+                    denoiser?.processAudio(buffer)
+                    // After processing, the buffer's position is at the limit.
+                    // We need to clear it for the next read.
+                    buffer.clear()
+                }
+            }
+        }
+    }
+
+    fun stopDenoising() {
+        if (recordingJob == null) return
+        Log.d(TAG, "Stopping denoising process...")
+
+        recordingJob?.cancel()
+        recordingJob = null
+
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+
+        denoiser?.close()
+        denoiser = null
+    }
+
+    override fun onCleared() {
+        stopDenoising()
+        super.onCleared()
+    }
+}
+```
+
 For a full list of methods and constants, see the **[API Reference](API.md)**.

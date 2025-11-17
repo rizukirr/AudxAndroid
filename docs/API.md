@@ -27,6 +27,7 @@ This document provides a complete API reference for the Audx Android audio denoi
 - **Streaming Pipeline**: You feed the denoiser audio chunks as you receive them (e.g., from `AudioRecord`). The denoiser buffers this audio internally and processes it in the fixed-size frames required by the underlying RNNoise engine.
 - **Asynchronous Processing**: All audio processing happens on a background thread. Denoised audio is delivered back to you via a callback.
 - **Arbitrary Sample Rates**: The denoiser can accept any standard sample rate (e.g., 8000, 16000, 44100 Hz). It automatically resamples the audio to the required 48 kHz for processing and then resamples it back to the original input rate.
+- **Zero-Copy API**: For high-performance scenarios, use the `processAudio(ByteBuffer)` overload with DirectByteBuffer for true zero-copy processing. Perfect for Oboe integration and low-latency applications.
 - **VAD (Voice Activity Detection)**: For each processed chunk, the denoiser provides a VAD score indicating the probability of speech.
 - **Performance Statistics**: The denoiser can collect detailed performance metrics, suchs as processing time and speech detection percentages.
 
@@ -101,6 +102,78 @@ class MyViewModel : ViewModel() {
 }
 ```
 
+### Advanced: Zero-Copy ByteBuffer API
+
+For high-performance scenarios or when integrating with native audio libraries like Oboe, use the `processAudio(ByteBuffer)` overload for true zero-copy processing.
+
+```kotlin
+class HighPerformanceViewModel : ViewModel() {
+    private var denoiser: AudxDenoiser? = null
+
+    fun startDenoising() {
+        // Build the denoiser (same as before)
+        denoiser = AudxDenoiser.Builder()
+            .inputSampleRate(48000) // Native 48kHz for zero resampling overhead
+            .vadThreshold(0.5f)
+            .onProcessedAudio { result ->
+                // Denoised audio delivered here
+                Log.d("VAD", "Speech probability: ${result.vadProbability}")
+            }
+            .build()
+
+        // Allocate a DIRECT ByteBuffer for zero-copy processing
+        val bufferSizeBytes = 960 * 2  // 960 samples * 2 bytes per sample (20ms at 48kHz)
+        val directBuffer = ByteBuffer.allocateDirect(bufferSizeBytes)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+        val audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            48000,  // 48kHz
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            AudioRecord.getMinBufferSize(48000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            audioRecord.startRecording()
+            while (isActive) {
+                directBuffer.clear()
+                val bytesRead = audioRecord.read(directBuffer, directBuffer.capacity())
+                if (bytesRead > 0) {
+                    directBuffer.flip()
+                    // Zero-copy processing!
+                    denoiser?.processAudio(directBuffer)
+                }
+            }
+        }
+    }
+
+    fun stopDenoising() {
+        denoiser?.flush()
+        denoiser?.close()
+        denoiser = null
+    }
+}
+```
+
+**Key Differences:**
+- **DirectByteBuffer**: Must use `ByteBuffer.allocateDirect()` - regular heap buffers will throw `IllegalArgumentException`
+- **Little-endian**: Set byte order to `ByteOrder.LITTLE_ENDIAN` (standard for Android audio)
+- **Position management**: Buffer position is automatically advanced after processing
+- **Performance**: ~0.2-0.5ms lower latency compared to ShortArray API
+
+**When to use ByteBuffer:**
+- Integration with Oboe or other native audio libraries
+- High-throughput scenarios (streaming, real-time communication)
+- When minimizing latency is critical
+- Large audio chunks (>1024 samples)
+
+**When to use ShortArray:**
+- Simple use cases and prototypes
+- Small audio chunks (<512 samples)
+- When working with Kotlin/Java audio APIs
+- Easier debugging and testing
+
 ---
 
 ## API Details
@@ -127,7 +200,8 @@ The public methods available on an `AudxDenoiser` instance.
 
 | Method                        | Description                                                                                             | Thread Safety |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------- | ------------- |
-| `processAudio(ShortArray)`    | Asynchronously submits an audio chunk for processing. Non-blocking.                                     | Thread-safe   |
+| `processAudio(ShortArray)`    | Asynchronously submits an audio chunk for processing. Non-blocking. Standard API for most use cases.    | Thread-safe   |
+| `processAudio(ByteBuffer)`    | **NEW!** Asynchronously submits audio from a DirectByteBuffer for zero-copy processing. Non-blocking. **Requires DirectByteBuffer** allocated with `ByteBuffer.allocateDirect()`. Perfect for Oboe integration and high-throughput scenarios. Buffer must be in little-endian format (standard for Android). | Thread-safe   |
 | `flush()`                     | Synchronously processes any remaining audio in the buffer. Blocks until complete. Invokes `onCollectStats` callback if enabled, then automatically resets statistics. | Thread-safe   |
 | `close()`                     | Flushes remaining audio, releases all resources, and stops the worker thread. Blocks until complete. The instance is unusable after this. | Thread-safe   |
 | `cleanStats()`                | Synchronously resets all collected statistics to zero. Blocks until complete. Note: `flush()` and `close()` automatically reset statistics after invoking the callback, so manual use is rarely needed. | Thread-safe   |
