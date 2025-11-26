@@ -111,8 +111,8 @@ afterEvaluate {
 
                     licenses {
                         license {
-                            name.set("BSD 3-Clause License")
-                            url.set("https://opensource.org/licenses/BSD-3-Clause")
+                            name.set("MIT License")
+                            url.set("https://opensource.org/licenses/MIT")
                         }
                     }
                 }
