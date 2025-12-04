@@ -253,11 +253,6 @@ fun isClosed(): Boolean  // Check if instance is closed
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Credits
-
-- [RNNoise](https://github.com/xiph/rnnoise) - Recurrent neural network for audio noise reduction (Xiph.Org Foundation)
-- [SpeexDSP](https://github.com/xiph/speexdsp) - Audio resampling library (Xiph.Org Foundation)
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
