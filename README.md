@@ -3,7 +3,7 @@
 [![](https://jitpack.io/v/rizukirr/audx-android.svg)](https://jitpack.io/#rizukirr/audx-android)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Real-time audio denoising and Voice Activity Detection (VAD) library for Android
+Blazingly Fast Real-time audio denoising and Voice Activity Detection (VAD) library for Android
 
 ## Features
 
@@ -34,7 +34,7 @@ Add the dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:v1.2.0")
+    implementation("com.github.rizukirr:audx-android:v2.0.0")
 }
 ```
 
