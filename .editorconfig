@@ -1,0 +1,56 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# =============== C / C++ (JNI, NDK, Native Code) ===============
+[*.{c,cc,cpp,cxx,h,hpp,hxx}]
+indent_style = space
+indent_size = 4
+tab_width = 4
+max_line_length = 120
+
+# Clang-format style (mapped by IDEs)
+ij_cpp_align_pointer = right
+ij_cpp_brace_placement = end_of_line
+ij_cpp_space_after_comma = true
+ij_cpp_space_before_parentheses = false
+ij_cpp_indent_case_from_switch = true
+ij_cpp_keep_simple_blocks_in_one_line = false
+
+# No tabs in C/C++
+ij_cpp_use_tab_character = false
+
+# Import/include ordering (use grouped includes)
+ij_cpp_sort_includes = true
+ij_cpp_separate_includes = true
+
+# =============== JNI Java/Kotlin side (optional) ===============
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_name_count_to_use_star_import = 999
+ij_kotlin_name_count_to_use_star_import_for_members = 999
+
+# =============== Make/CMake/Gradle Native Build ===============
+[*.{cmake,txt}]
+indent_style = space
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+
+# =============== JSON/YAML ===============
+[*.json]
+indent_size = 2
+
+[*.yml]
+indent_size = 2

@@ -1,93 +1,272 @@
-# Audx - Android Real-time Audio Denoising Library
+# Audx Android
 
 [![](https://jitpack.io/v/rizukirr/audx-android.svg)](https://jitpack.io/#rizukirr/audx-android)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A streaming, real-time audio denoising library for Android with Voice Activity Detection (VAD). It wraps a native C++ library ([audx-realtime](https://github.com/rizukirr/audx-realtime)) with a clean, easy-to-use Kotlin API.
+Real-time audio denoising and Voice Activity Detection (VAD) library for Android
 
 ## Features
 
-- **Real-time Noise Suppression**: Based on the excellent [Xiph.Org RNNoise](https://github.com/xiph/rnnoise) algorithm.
-- **Streaming API**: Process audio in chunks of any size. The library handles all internal buffering.
-- **Support for Any Sample Rate**: Automatically resamples from any standard input rate (e.g., 8kHz, 16kHz, 44.1kHz) to the required 48kHz and back.
-- **Voice Activity Detection (VAD)**: Each processed chunk includes a probability score for speech presence.
-- **Performance Statistics**: Collect detailed metrics on CPU usage and speech activity.
-- **Fluent Builder API**: A simple, chainable builder for easy configuration.
-- **Lightweight & Performant**: Efficient C++ core with no external dependencies outside of the Android NDK.
-- **Zero-Copy API**: A new `processAudio(ByteBuffer)` API for high-throughput scenarios, offering true zero-copy processing when used with a `DirectByteBuffer`.
-
-## Performance
-
-Version `1.1.2` introduces significant performance improvements, including pre-allocated memory buffers and cached JNI lookups, resulting in:
-- ~25-35% faster processing per frame.
-- ~20-25% lower CPU usage.
-- Zero memory allocations on the audio processing hot path.
-
-For high-performance use cases, the new **zero-copy API** is recommended. See the [Quick Start Guide](docs/QUICK_START.md#5-advanced-zero-copy-processing-with-bytebuffer) for an integration example.
-
-## Getting Started
-
-For a detailed guide on integrating Audx with `AudioRecord` in a modern Android app, please see the **[Quick Start Guide](docs/QUICK_START.md)**.
-
-Here is a minimal example:
-
-```kotlin
-// 1. Build the denoiser instance
-val denoiser = AudxDenoiser.Builder()
-    .inputSampleRate(16000) // Match your source's sample rate
-    .onProcessedAudio { result ->
-        // This callback runs on a background thread.
-        // 'result.audio' contains the denoised audio.
-        Log.d("Audx", "VAD Probability: ${result.vadProbability}")
-    }
-    .build()
-
-// 2. Process audio chunks as they arrive (e.g., from AudioRecord)
-denoiser.processAudio(myAudioChunk)
-
-// 3. At the end of the stream, close the denoiser to release resources.
-// This is a blocking call that performs a final flush before cleaning up.
-denoiser.close()
-```
+- **Real-time noise suppression** using Recurrent Neural Networks (RNNoise)
+- **Voice Activity Detection (VAD)** with probability scores (0.0-1.0)
+- **Automatic sample rate conversion** - works with any input rate (8kHz, 16kHz, 48kHz, etc.)
+- **High performance** - SIMD optimized for ARM64 and x86_64
+- **Coroutine support** - async processing with Kotlin coroutines
+- **Small footprint** - native libraries optimized for mobile
+- **Simple API** - easy integration with AudioRecord/AudioTrack
 
 ## Installation
 
-1.  Add the JitPack repository to your project's `settings.gradle.kts` file:
+Add JitPack repository to your `settings.gradle.kts`:
 
 ```kotlin
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
+        maven("https://jitpack.io") // Add this
     }
 }
 ```
 
-2.  Add the dependency to your module's `build.gradle.kts` file:
+Add the dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.rizukirr:audx-android:1.1.2")
+    implementation("com.github.rizukirr:audx-android:v1.2.0")
 }
 ```
-> Always check the [Releases](https://github.com/rizukirr/audx-android/releases) page for the latest version.
 
-## Documentation
+## Quick Start
 
-- **[Quick Start Guide](docs/QUICK_START.md)**: A detailed, step-by-step integration guide.
-- **[API Reference](docs/API.md)**: A complete reference for all classes, methods, and constants.
+### Basic Usage
 
-## Requirements
+```kotlin
+import com.audx.android.Audx
 
-- **Min SDK**: 24 (Android 7.0)
-- **Audio Format**: 16-bit signed PCM, Mono.
+class VoiceRecorder {
+    private val audx = Audx.Builder()
+        .inputRate(16000)  // Match your AudioRecord sample rate
+        .resampleQuality(Audx.AUDX_RESAMPLER_QUALITY_VOIP)
+        .build()
+
+    fun processAudioChunk(audioData: ShortArray) {
+        val outputBuffer = ShortArray(audioData.size)
+
+        audx.process(audioData, outputBuffer) { vadProbability ->
+            if (vadProbability > 0.5f) {
+                println("Voice detected! Probability: $vadProbability")
+            } else {
+                println("Silence or noise")
+            }
+        }
+
+        // outputBuffer now contains denoised audio
+        playAudio(outputBuffer)
+    }
+
+    fun cleanup() {
+        audx.close()
+    }
+}
+```
+
+### Real-time Microphone Processing
+
+```kotlin
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.audx.android.Audx
+
+class AudioViewModel : ViewModel() {
+    private val sampleRate = 16000
+    private val channelConfig = AudioFormat.CHANNEL_IN_MONO
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    private val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+
+    private val audx = Audx.Builder()
+        .inputRate(sampleRate)
+        .resampleQuality(Audx.AUDX_RESAMPLER_QUALITY_VOIP)
+        .build()
+
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+
+    fun startRecording() {
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            sampleRate,
+            channelConfig,
+            audioFormat,
+            bufferSize
+        )
+
+        audioRecord?.startRecording()
+        isRecording = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val buffer = ShortArray(bufferSize)
+            val outputBuffer = ShortArray(bufferSize)
+
+            while (isRecording) {
+                val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+
+                if (readSize > 0) {
+                    // Process audio with denoising
+                    audx.process(buffer, outputBuffer) { vadProbability ->
+                        if (vadProbability > 0.5f) {
+                            // Voice detected - could trigger recording, transcription, etc.
+                            onVoiceDetected(vadProbability)
+                        }
+                    }
+
+                    // Use outputBuffer for playback, streaming, or storage
+                    processCleanAudio(outputBuffer, readSize)
+                }
+            }
+        }
+    }
+
+    fun stopRecording() {
+        isRecording = false
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopRecording()
+        audx.close()
+    }
+
+    private fun onVoiceDetected(probability: Float) {
+        // Handle voice detection
+    }
+
+    private fun processCleanAudio(audio: ShortArray, size: Int) {
+        // Play, save, or stream the denoised audio
+    }
+}
+```
+
+### Async Processing with Coroutines
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+
+class AudioProcessor {
+    private val audx = Audx.Builder()
+        .inputRate(16000)
+        .resampleQuality(Audx.AUDX_RESAMPLER_QUALITY_DEFAULT)
+        .build()
+
+    suspend fun processAudioFile(inputFile: File): Flow<ProcessedChunk> = flow {
+        val audioData = readAudioFile(inputFile) // Your file reader
+        val chunkSize = 160 // 10ms at 16kHz
+
+        for (i in audioData.indices step chunkSize) {
+            val chunk = audioData.sliceArray(i until minOf(i + chunkSize, audioData.size))
+            val output = ShortArray(chunk.size)
+
+            audx.processAsync(chunk, output) { vadProbability ->
+                emit(ProcessedChunk(output, vadProbability))
+            }
+        }
+    }
+
+    fun close() {
+        audx.close()
+    }
+}
+
+data class ProcessedChunk(val audio: ShortArray, val vadProbability: Float)
+```
+
+## API Reference
+
+### Builder Configuration
+
+```kotlin
+val audx = Audx.Builder()
+    .inputRate(sampleRate)      // Input/output sample rate (Hz)
+    .resampleQuality(quality)    // Resampler quality: 0-10
+    .build()
+```
+
+#### Sample Rates
+48kHz by default, if your audio rate not 48kHz, you must specify your audio sample rate via `inputRate(your sample rate)`. Any positive sample rate is supported (e.g., 8000, 16000, 24000, 48000)
+
+#### Resampler Quality Constants
+- `AUDX_RESAMPLER_QUALITY_MIN` (0) - Fastest, lowest quality
+- `AUDX_RESAMPLER_QUALITY_VOIP` (3) - Optimized for real-time voice
+- `AUDX_RESAMPLER_QUALITY_DEFAULT` (4) - Balanced quality/performance
+- `AUDX_RESAMPLER_QUALITY_MAX` (10) - Highest quality, slowest
+
+### Processing Methods
+
+```kotlin
+// Synchronous processing
+fun process(
+    input: ShortArray,
+    output: ShortArray,
+    vadProbabilityCallback: (Float) -> Unit
+)
+
+// Asynchronous processing (coroutine)
+suspend fun processAsync(
+    input: ShortArray,
+    output: ShortArray,
+    vadProbabilityCallback: (Float) -> Unit
+)
+```
+
+### Resource Management
+
+```kotlin
+fun close()           // Release native resources
+fun isClosed(): Boolean  // Check if instance is closed
+```
+
+⚠️ **Important**: Always call `close()` when done to free native resources.
+
+## Performance Tips
+
+1. **Choose appropriate quality**: Use `AUDX_RESAMPLER_QUALITY_VOIP` for real-time applications
+2. **Reuse buffers**: Allocate output buffers once and reuse them
+3. **Match sample rates**: If possible, use 48kHz to avoid resampling overhead
+
+## Supported Platforms
+
+- **Minimum SDK**: Android 24 (Android 7.0)
+- **Architectures**: ARM64 (arm64-v8a), x86_64
+- **NDK**: Built with CMake 3.22.1
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Credits
+
+- [RNNoise](https://github.com/xiph/rnnoise) - Recurrent neural network for audio noise reduction (Xiph.Org Foundation)
+- [SpeexDSP](https://github.com/xiph/speexdsp) - Audio resampling library (Xiph.Org Foundation)
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support
+
+If you encounter any issues or have questions:
+- Open an issue on [GitHub](https://github.com/rizukirr/audx-android/issues)
+- If you find this project helpful, consider ☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
 ---
 
-**Support This Project**
-
-If you find this project helpful, consider ☕ [Buy Me a Coffee](https://ko-fi.com/rizukirr)
+Made with ❤️ by [Rizki](https://github.com/rizukirr)
