@@ -19,5 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Audx"
+rootProject.name = "audx-android"
 include(":app")
+include(":audx")
